@@ -1,0 +1,6 @@
+/build
+/vcpkg_installed
+/vcpkg.json
+/vcpkg-configuration.json
+/include/Example/
+/src/Main.cpp
