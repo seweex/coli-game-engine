@@ -1,34 +1,41 @@
-cmake_minimum_required(VERSION 3.20)
+cmake_minimum_required(VERSION 3.18)
 
-project(coli VERSION 0.1.0 LANGUAGES C CXX)
+project(coli VERSION 0.2.0 LANGUAGES C CXX)
 
 set(INCLUDE_DIR ${CMAKE_SOURCE_DIR}/include)
 set(LIBS_DIR    ${CMAKE_SOURCE_DIR}/libs)
 set(SOURCE_DIR  ${CMAKE_SOURCE_DIR}/src)
 
-add_executable(coli_test ${SOURCE_DIR}/Main.cpp)
-target_include_directories(coli_test PRIVATE ${INCLUDE_DIR})
+file(GLOB_RECURSE HEADERS ${INCLUDE_DIR}/**/*.hxx)
+file(GLOB_RECURSE SOURCES ${SOURCE_DIR}/*.cpp)
 
-set_property(TARGET coli_test PROPERTY CXX_STANDARD 23)
-set_property(TARGET coli_test PROPERTY CXX_STANDARD_REQUIRED ON)
+add_executable (coli_test   ${HEADERS} ${SOURCES})
+add_library    (glad STATIC ${LIBS_DIR}/glad/glad.c)
 
-#source_group(Graphics FILES ${INCLUDE_DIR}/Graphics/Buffer.hxx
-#							${INCLUDE_DIR}/Graphics/Shader.hxx)
+set_target_properties (coli_test PROPERTIES
+    LANGUAGE 		  CXX
+    CXX_STANDARD 	  23
+    CXX_STANDARD_REQUIRED YES
+)
 
-# glad
-add_library(glad STATIC ${LIBS_DIR}/glad/glad.c)
-target_include_directories(glad PRIVATE ${LIBS_DIR}/glad)
-target_link_libraries(coli_test PRIVATE glad)
-target_include_directories(coli_test PRIVATE ${LIBS_DIR}/glad)
+set_target_properties (glad PROPERTIES
+    LANGUAGE 		C
+    C_STANDARD          17
+    C_STANDARD_REQUIRED YES
+)
 
-# glm
-find_package(glm CONFIG REQUIRED)
-target_link_libraries(coli_test PRIVATE glm::glm-header-only)
+find_package (glm	    CONFIG REQUIRED)
+find_package (glfw3 	    CONFIG REQUIRED)
+find_package (nlohmann_json CONFIG REQUIRED)
 
-# glfw
-find_package(glfw3 CONFIG REQUIRED)
-target_link_libraries(coli_test PRIVATE glfw)
+target_include_directories (glad      PUBLIC  ${LIBS_DIR}/glad)
+target_include_directories (coli_test PRIVATE ${INCLUDE_DIR})
 
-# json
-find_package(nlohmann_json 3.11.3 REQUIRED)
-target_link_libraries(coli_test PRIVATE nlohmann_json::nlohmann_json)
+target_link_libraries (coli_test PRIVATE
+	nlohmann_json::nlohmann_json
+	glm::glm-header-only
+	glad
+	glfw
+)
+
+source_group (Source TREE ${CMAKE_SOURCE_DIR})

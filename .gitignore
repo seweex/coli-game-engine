@@ -4,3 +4,4 @@
 /vcpkg-configuration.json
 /include/Example/
 /src/Main.cpp
+build.bat
