@@ -9,29 +9,31 @@ set(SOURCE_DIR  ${CMAKE_SOURCE_DIR}/src)
 file(GLOB_RECURSE HEADERS ${INCLUDE_DIR}/**/*.hxx)
 file(GLOB_RECURSE SOURCES ${SOURCE_DIR}/*.cpp)
 
-add_executable (coli_test   ${HEADERS} ${SOURCES})
-add_library    (glad STATIC ${LIBS_DIR}/glad/glad.c)
+set(COLI_BLOCKS coli-blocks)
 
-set_target_properties (coli_test PROPERTIES
-    LANGUAGE 		  CXX
-    CXX_STANDARD 	  23
-    CXX_STANDARD_REQUIRED YES
+add_executable (${COLI_BLOCKS} ${HEADERS} ${SOURCES})
+add_library    (glad STATIC    ${LIBS_DIR}/glad/glad.c)
+
+set_target_properties (${COLI_BLOCKS} PROPERTIES
+    LANGUAGE 		      CXX
+    CXX_STANDARD 	      23
+    CXX_STANDARD_REQUIRED ON
 )
 
 set_target_properties (glad PROPERTIES
-    LANGUAGE 		C
+    LANGUAGE 		    C
     C_STANDARD          17
-    C_STANDARD_REQUIRED YES
+    C_STANDARD_REQUIRED ON
 )
 
-find_package (glm	    CONFIG REQUIRED)
+find_package (glm	        CONFIG REQUIRED)
 find_package (glfw3 	    CONFIG REQUIRED)
 find_package (nlohmann_json CONFIG REQUIRED)
 
-target_include_directories (glad      PUBLIC  ${LIBS_DIR}/glad)
-target_include_directories (coli_test PRIVATE ${INCLUDE_DIR})
+target_include_directories (glad           PUBLIC  ${LIBS_DIR}/glad)
+target_include_directories (${COLI_BLOCKS} PRIVATE ${INCLUDE_DIR})
 
-target_link_libraries (coli_test PRIVATE
+target_link_libraries (${COLI_BLOCKS} PRIVATE
 	nlohmann_json::nlohmann_json
 	glm::glm-header-only
 	glad

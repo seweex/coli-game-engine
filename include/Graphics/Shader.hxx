@@ -3,6 +3,8 @@
 #include "../Common.hxx"
 #include "../Utility.hxx"
 
+#include "Context.hxx"
+
 namespace Coli
 {
 	namespace Graphics

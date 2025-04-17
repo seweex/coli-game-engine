@@ -32,9 +32,12 @@ namespace Coli
 		class EntityBase :
 			public Detail::IdentifiableBase
 		{
+		protected:
+			EntityBase() noexcept = default;
+
 		public:
-			_NODISCARD virtual nlohmann::json serialize() const = 0;
-			virtual void deserialize(nlohmann::json const& obj) = 0;
+			_NODISCARD virtual nlohmann::json serialize() const { return {}; }
+			virtual void deserialize(nlohmann::json const& obj) {}
 
 			virtual void on_start () {}
 
@@ -134,9 +137,6 @@ namespace Coli
 			_NODISCARD static constexpr Detail::ComponentCategory get_category() noexcept {
 				return Detail::ComponentCategory::script;
 			}
-
-			_NODISCARD nlohmann::json serialize() const noexcept final { return {}; }
-			void deserialize(nlohmann::json const&)     noexcept final {}
 		};
 	}
 }

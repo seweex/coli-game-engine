@@ -10,6 +10,7 @@
 #include "../Game/Scene.hxx"
 
 #include "../Graphics/Window.hxx"
+#include "../Graphics/Renderer.hxx"
 
 namespace Coli
 {
@@ -84,8 +85,8 @@ namespace Coli
 				return myScene;
 			}
 
-			std::weak_ptr<Game::Scene> make_scene() {
-				return myScene = std::make_shared<Game::Scene>();
+			Game::Scene& make_scene() {
+				return *(myScene = std::make_shared<Game::Scene>());
 			}
 
 			void set_active_scene(std::shared_ptr<Game::Scene> scene) noexcept {

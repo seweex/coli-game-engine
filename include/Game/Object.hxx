@@ -36,7 +36,7 @@ namespace Coli
 			}
 
 			template <Detail::GameComponent _Ty>
-			_NODISCARD std::weak_ptr<_Ty> get_component()
+			_NODISCARD std::weak_ptr<_Ty> get_component() const
 			{
 				auto ptr = try_get_component<_Ty>();
 				
@@ -47,7 +47,7 @@ namespace Coli
 			}
 
 			template <Detail::GameComponent _Ty>
-			_NODISCARD std::weak_ptr<_Ty> try_get_component() noexcept
+			_NODISCARD std::weak_ptr<_Ty> try_get_component() const noexcept
 			{
 				auto iter = myComponents.find(_Ty::get_category());
 
@@ -56,6 +56,17 @@ namespace Coli
 						return ptr;
 				
 				return {};
+			}
+
+			template <Detail::GameComponent _Ty> 
+			void remove_component(std::weak_ptr<_Ty> ptr) noexcept 
+			{
+				auto iter = myComponents.find(_Ty::get_category());
+
+				if (iter != myComponents.end() && 
+					iter->second == ptr.lock()
+				)
+					myComponents.erase(iter);
 			}
 
 			void change_layer(size_t layer) noexcept {

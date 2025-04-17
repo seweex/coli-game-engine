@@ -90,17 +90,33 @@ namespace Coli
 
 		public:
 			template <std::derived_from<Object> _Ty = Object, class..._ArgTys>
-			_Ty& make_object(_ArgTys&&... args)
+			std::weak_ptr<_Ty> make_object(_ArgTys&&... args)
 			{
-				auto  ptr = std::make_shared<_Ty>(std::forward<_ArgTys>(args)...);
-				auto& obj = *ptr;
+				auto ptr = std::make_shared<_Ty>(std::forward<_ArgTys>(args)...);
 
 				if constexpr (std::derived_from<_Ty, Detail::CameraBase>)
-					if (myCamera.expired())
+					if (myCamera.expired()) _UNLIKELY
 						myCamera = ptr;
 				
-				myObjects.emplace(std::move(ptr));
-				return obj;
+				myObjects.emplace(ptr);
+				return ptr;
+			}
+
+			template <std::derived_from<Object> _Ty>
+			void remove_object(std::weak_ptr<_Ty> ptr) noexcept
+			{
+				if (auto const object = ptr.lock()) _LIKELY
+				{
+					auto const lower = myObjects.lower_bound(object);
+					auto const upper = myObjects.upper_bound(object);
+
+					auto const iter = std::find_if (lower, upper, 
+												   [&] (auto const& obj) {
+													   return object == obj;
+												   });
+
+					myObjects.erase(iter);
+				}
 			}
 
 			void bind_camera(std::shared_ptr<Detail::CameraBase> camera) noexcept {
@@ -184,13 +200,13 @@ namespace Coli
 		private:
 			static constexpr std::string_view key_id = "id";
 
-			std::weak_ptr<Detail::CameraBase> myCamera;
-
 			std::multiset<std::shared_ptr<Object>, 
 						  decltype([](auto const& l, auto const& r) {
 					          return l->get_layer() < r->get_layer();
 						  })>
 			myObjects;
+
+			std::weak_ptr<Detail::CameraBase> myCamera;
 		};
 	}
 }

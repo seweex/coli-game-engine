@@ -3,6 +3,7 @@
 #include "../Common.hxx"
 #include "../Utility.hxx"
 
+#include "Context.hxx"
 #include "../Visual/Texture.hxx"
 
 namespace Coli

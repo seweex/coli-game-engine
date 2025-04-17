@@ -116,6 +116,103 @@ namespace Coli
 
 				bool myProjChanged = true;
 			};
+
+			template <std::floating_point _FloatTy>
+			class Camera2D final :
+				public Object,
+				public Detail::CameraBase
+			{
+			public:
+				Camera2D() noexcept :
+					myTransform (Object::make_component<Components::Transform2D<_FloatTy>>())
+				{}
+
+				void on_late_update(float time) final {
+					Object::on_late_update(time);
+					myProjChanged = false;
+				}
+
+				void update_aspect(float aspect) noexcept {
+					myAspect = aspect;
+					myProjChanged = true;
+				}
+
+				void update_coverage(float coverage) noexcept {
+					myCoverage    = coverage;
+					myProjChanged = true;
+				}
+
+				_NODISCARD bool has_view_changed() const noexcept {
+					if (auto transform = myTransform.lock())
+						return transform->has_changed();
+					else
+						return false;
+				}
+
+				_NODISCARD bool has_proj_changed() const noexcept {
+					return myProjChanged;
+				}
+
+				_NODISCARD glm::mat4 get_view_matrix() const noexcept
+				{
+					const glm::mat4 identity { 1 };
+					const glm::vec3 axis     { 0, 0, -1 };
+
+					if (auto transform = myTransform.lock())
+						return glm::rotate    (identity, transform->rotation, axis)
+							 * glm::translate (identity, glm::vec3{ -transform->position, 0});
+					else
+						return identity;
+				}
+
+				_NODISCARD glm::mat4 get_projection_matrix() const noexcept {
+					return glm::ortho(
+						-myCoverage,
+						 myCoverage,
+						-myCoverage * myAspect,
+						 myCoverage * myAspect
+					);
+				}
+
+				_NODISCARD nlohmann::json serialize() const final
+				{
+					auto obj = Object::serialize();
+
+					obj[key_aspect]   = myAspect;
+					obj[key_coverage] = myCoverage;
+
+					return obj;
+				}
+
+				void deserialize(nlohmann::json const& obj) final
+				{
+					using Detail::Json::try_fill;
+
+					Object::deserialize(obj);
+
+					float tempAspect;
+					float tempCovergae;
+
+					try_fill(obj, tempAspect,   key_aspect);
+					try_fill(obj, tempCovergae, key_coverage);
+
+					myProjChanged = true;
+
+					myAspect   = tempAspect;
+					myCoverage = tempCovergae;
+				}
+
+			private:
+				static constexpr std::string_view key_coverage = "coverage";
+				static constexpr std::string_view key_aspect   = "aspect";
+
+				std::weak_ptr<Components::Transform2D<_FloatTy> const> myTransform;
+
+				float myAspect   = 1.f;
+				float myCoverage = 1.f;
+
+				bool myProjChanged = true;
+			};
 		}
 	}
 }

@@ -179,9 +179,10 @@ namespace Coli
 					glm::vec <_Use2D ? 2 : 3, _FloatTy> const& size = glm::vec<_Use2D ? 2 : 3, _FloatTy>{ 1 },
 					rotator_type const& rotator = {}
 				) noexcept :
-					myHalfSizes (size / static_cast<_FloatTy>(2)),
-					myRotation  (rotator),
-					myDiagonal  (glm::length(myHalfSizes))
+					myHalfSizes			 (size / static_cast<_FloatTy>(2)),
+					myRotation			 (rotator),
+					myDiagonal			 (glm::length(myHalfSizes)),
+					myIgnoreRotationFlag (false)
 				{}
 
 				void disable_transform_rotation() noexcept {
@@ -270,12 +271,11 @@ namespace Coli
 
 				using Detail::SAT::ColliderBase<_FloatTy, _Use2D>::myTransform;
 
-				rotator_type myRotation;
-				bool		 myIgnoreRotationFlag;
-
 				glm::vec<_Use2D ? 2 : 3, _FloatTy> myHalfSizes;
+				_FloatTy	 myDiagonal;
+				rotator_type myRotation;
 
-				_FloatTy myDiagonal;
+				bool myIgnoreRotationFlag;
 			};
 
 			template <std::floating_point _FloatTy, bool _Use2D>
