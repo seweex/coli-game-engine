@@ -8,61 +8,75 @@
 
 namespace Coli
 {
-	namespace Detail
-	{
-		class PolymorphicPhysicalBody
-		{
-		public:
-			virtual void report_collision(PolymorphicCollision const& collision, PolymorphicPhysicalBody& other) {}
-			virtual void report_collision(PolymorphicCollision const& collision) {}
-		};
-	}
-
 	namespace Geometry
 	{
-		template <std::floating_point _FloatTy, bool _Use2D>
-		class BasicPhysicalBody :
-			public virtual Detail::PolymorphicPhysicalBody
+		template <bool _Use2D>
+		class BasicPhysicalBody
 		{
-			void apply_position_correction(glm::vec<_Use2D ? 2 : 3, _FloatTy> const& diff) noexcept {
-				if (auto transform = myTransform.lock()) _LIKELY
+			using vector_type = glm::vec <_Use2D ? 2 : 3, double>;
+
+			void apply_position_correction (vector_type const& diff) noexcept {
+				if (auto transform = myTransform.lock())
 					transform->position += diff;
 			}
 
 		public:
-			void report_force(glm::vec<_Use2D ? 2 : 3, _FloatTy> const& direction, _FloatTy magnitude)
+			BasicPhysicalBody() noexcept = default;
+
+			BasicPhysicalBody(BasicPhysicalBody const& other) noexcept {
+				*this = other;
+			}
+
+			BasicPhysicalBody& operator=(BasicPhysicalBody const& other) noexcept
 			{
+				myMaxVelocity		= other.myMaxVelocity;
+				myForcesAccumulator = other.myForcesAccumulator;
+				myVelocity			= other.myVelocity;
+
+				collideRestitution = other.collideRestitution;
+				movingResistance   = other.movingResistance;
+				mass			   = other.mass;
+				gravity			   = other.gravity;
+
+				return *this;
+			}
+
+			void report_force (vector_type const& direction, double magnitude) noexcept {
 				myForcesAccumulator += magnitude / mass * direction;
 			}
 
-			void apply_force(glm::vec<_Use2D ? 2 : 3, _FloatTy> const& direction, _FloatTy magnitude, float time = 1) noexcept
+			void report_force (vector_type const& force) noexcept {
+				myForcesAccumulator += force / mass;
+			}
+
+			void apply_force (vector_type const& direction, double magnitude, float time) noexcept
 			{
 				myVelocity += time * magnitude / mass * direction;
 
-				if (myMaxVelocity)
+				if (myMaxVelocity.has_value())
 					myVelocity = glm::clamp(myVelocity, -*myMaxVelocity, *myMaxVelocity);
 			}
 
-			void apply_forces(float time) noexcept
+			void apply_forces (float time) noexcept
 			{
 				myVelocity.y -= time * mass * gravity;
 				
-				myVelocity -= time / (1 - Detail::clamp_0_1(movingResistance)) * myVelocity;
+				myVelocity -= time / (1.0 - glm::clamp (movingResistance, 0.0, 1.0)) * myVelocity;
 				myVelocity += time / mass * myForcesAccumulator;
 
-				if (myMaxVelocity)
-					myVelocity = glm::clamp(myVelocity, -*myMaxVelocity, *myMaxVelocity);
+				if (myMaxVelocity.has_value())
+					myVelocity = glm::clamp (myVelocity, -*myMaxVelocity, *myMaxVelocity);
 
-				myForcesAccumulator = glm::vec<_Use2D ? 2 : 3, _FloatTy>{ 0 };
+				myForcesAccumulator = vector_type{ 0 };
 			}
 
-			void apply_velocity(float time) noexcept {
-				if (auto transform = myTransform.lock()) _LIKELY
-					transform->position += myVelocity * static_cast<_FloatTy>(time);
+			void apply_velocity (float time) noexcept {
+				if (auto transform = myTransform.lock())
+					transform->position += myVelocity * static_cast<double>(time);
 			}
 
-			void limit_velocity(glm::vec<_Use2D ? 2 : 3, _FloatTy> const& max) noexcept {
-				myMaxVelocity.emplace(glm::abs(max));
+			void limit_velocity (vector_type const& max) noexcept {
+				myMaxVelocity.emplace (glm::abs(max));
 			}
 
 			void unleash_velocity() noexcept {
@@ -70,54 +84,50 @@ namespace Coli
 			}
 
 			void report_collision(
-				Detail::PolymorphicCollision const& collision,
-				Detail::PolymorphicPhysicalBody& other
-			) final 
+				BasicPhysicalBody const& other,
+				BasicCollision<_Use2D> const& collision
+			) noexcept 
 			{
-				auto const otherBody    = dynamic_cast<BasicPhysicalBody*>	       (std::addressof(other));
-				auto const collisionPtr = dynamic_cast<Collision<_FloatTy> const*> (std::addressof(collision));
+				auto const relativeVelocity = myVelocity - other.myVelocity;
+				auto const direction		= collision.direction;
 
-				if (collisionPtr && otherBody) _LIKELY
+				auto const product = glm::dot(relativeVelocity, direction);
+
+				if (product > 0 && false)
 				{
-					auto const relativeVelocity = myVelocity - otherBody->myVelocity;
-					auto const direction		= collisionPtr->direction;
+					auto const correction    = collision.overlap / (mass + other.mass) * collision.normal;
+					auto const directionSign = glm::sign (glm::dot(myVelocity, collision.normal));
 
-					auto const product = glm::dot(relativeVelocity, direction);
+					this->apply_position_correction (correction * (other.mass * directionSign));
+					other.apply_position_correction (correction * (mass * -directionSign));
+				}
+				else if (product < 0)
+				{
+					auto myRestitution    = glm::clamp (collideRestitution, 0.0, 1.0);
+					auto otherRestitution = glm::clamp (other.collideRestitution, 0.0, 1.0);
 
-					if (product < 0) _UNLIKELY
-					{
-						auto const restFactor = -1 - collideRestitution * otherBody->collideRestitution;
-						auto const massFactor = 1 / mass + 1 / otherBody->mass;
+					auto const restFactor = -1 - myRestitution * otherRestitution;
+					auto const massFactor = 1 / mass + 1 / other.mass;
 
-						auto const impulse = glm::dot(restFactor * relativeVelocity, collisionPtr->normal) / massFactor;
+					auto const impulse = glm::dot(restFactor * relativeVelocity, collision.normal) / massFactor;
 
-						if (impulse != 0) _LIKELY {
-							this->      apply_force(collisionPtr->normal,  impulse);
-							otherBody-> apply_force(collisionPtr->normal, -impulse);
-						}
-					}
-					else if (product > 0) 
-					{
-						auto const correction    = collisionPtr->overlap / (mass + otherBody->mass) * collisionPtr->normal;
-						auto const directionSign = -glm::sign(glm::dot(myVelocity, collisionPtr->normal));
-
-						this->      apply_position_correction(correction * (otherBody->mass * -directionSign));
-						otherBody-> apply_position_correction(correction * (mass * directionSign));
+					if (impulse != 0) {
+						this->apply_force (collision.normal,  impulse);
+						other.apply_force (collision.normal, -impulse);
 					}
 				}
 			}
 
-			void report_collision(Detail::PolymorphicCollision const& collision) noexcept final
+			void report_collision(BasicCollision<_Use2D> const& collision) noexcept 
 			{
-				auto const collisionPtr = dynamic_cast<Collision<_FloatTy> const*>(std::addressof(collision));
+				auto const restitution       = glm::clamp(collideRestitution, 0.0, 1.0);
+				auto const reflectedVelocity = (-1 - restitution) * myVelocity;
+				auto const force			 = glm::dot(reflectedVelocity, collision.normal) * mass;
 
-				if (collisionPtr) {
-					auto const reflectedVelocity = (-1 - collideRestitution) * myVelocity;
-					this->apply_force(collisionPtr->normal, glm::dot(reflectedVelocity, collisionPtr->normal) * mass);
-				}
+				this->apply_force(collision.normal, force);
 			}
 
-			void bind_transform(std::weak_ptr<Geometry::BasicTransform<_FloatTy, _Use2D>> transform) noexcept {
+			void bind_transform(std::weak_ptr <Geometry::BasicTransform <_Use2D>> transform) noexcept {
 				myTransform.swap(transform);
 			}
 
@@ -129,81 +139,80 @@ namespace Coli
 			}
 
 		private:
-			std::weak_ptr<Geometry::BasicTransform<_FloatTy, _Use2D>> myTransform;
+			std::weak_ptr <Geometry::BasicTransform <_Use2D>> myTransform;
 
-			std::optional<glm::vec<_Use2D ? 2 : 3, _FloatTy>> myMaxVelocity;
-			glm::vec<_Use2D ? 2 : 3, _FloatTy>				  myForcesAccumulator { 0 };
+			std::optional <vector_type> myMaxVelocity;
 
-			glm::vec<_Use2D ? 2 : 3, _FloatTy> myVelocity { 0 };
+			vector_type myForcesAccumulator { 0.0 };
+			vector_type myVelocity			{ 0.0 };
 
 		public:
-			_FloatTy collideRestitution = 0.8;
-			_FloatTy movingResistance   = 0.075;
-			_FloatTy mass				= 1;
-			_FloatTy gravity			= 10;
+			double collideRestitution = 0.8;
+			double movingResistance   = 0.075;
+			double mass				  = 1;
+			double gravity			  = 10;
 		};
-
-		template <std::floating_point _FloatTy>
-		using PhysicalBody = BasicPhysicalBody<_FloatTy, false>;
-
-		template <std::floating_point _FloatTy>
-		using PhysicalBody2D = BasicPhysicalBody<_FloatTy, true>;
+		
+		using PhysicalBody   = BasicPhysicalBody <false>;
+		using PhysicalBody2D = BasicPhysicalBody <true>;
 	}
 }
 
 namespace nlohmann
 {
-	template <std::floating_point _FloatTy, bool _Use2D>
-	struct adl_serializer <Coli::Geometry::BasicPhysicalBody<_FloatTy, _Use2D>>
+	template <bool _Use2D>
+	struct adl_serializer <Coli::Geometry::BasicPhysicalBody<_Use2D>>
 	{
 	private:
-		static constexpr std::string_view name_velocity     = "velocity";
-		static constexpr std::string_view name_max_velocity = "maxVelocity";
+		struct Keys {
+			static constexpr std::string_view velocity	   = "velocity";
+			static constexpr std::string_view max_velocity = "maxVelocity";
 
-		static constexpr std::string_view name_mass			 = "mass";
-		static constexpr std::string_view name_gravity		 = "gravity";
-		static constexpr std::string_view name_collide_rest  = "collideRestitution";
-		static constexpr std::string_view name_moving_resist = "movingResistance";
+			static constexpr std::string_view mass			= "mass";
+			static constexpr std::string_view gravity       = "gravity";
+			static constexpr std::string_view collide_rest  = "collideRestitution";
+			static constexpr std::string_view moving_resist = "movingResistance";
+		};
 
 	public:
-		static void to_json(json& j, Coli::Geometry::BasicPhysicalBody<_FloatTy, _Use2D> const& val)
+		static void to_json(json& j, Coli::Geometry::BasicPhysicalBody<_Use2D> const& val)
 		{
-			j[name_velocity]     = val.myVelocity;
-			j[name_max_velocity] = val.myMaxVelocity;
+			j [Keys::velocity]     = val.myVelocity;
+			j [Keys::max_velocity] = val.myMaxVelocity;
 
-			j[name_mass]		  = val.mass;
-			j[name_gravity]		  = val.gravity;
-			j[name_collide_rest]  = val.collideRestitution;
-			j[name_moving_resist] = val.movingResistance;
+			j [Keys::mass]		    = val.mass;
+			j [Keys::gravity]	    = val.gravity;
+			j [Keys::collide_rest]  = val.collideRestitution;
+			j [Keys::moving_resist] = val.movingResistance;
 		}
 
-		static void from_json(const json& j, Coli::Geometry::BasicPhysicalBody<_FloatTy, _Use2D>& val)
+		static void from_json (const json& j, Coli::Geometry::BasicPhysicalBody<_Use2D>& val)
 		{
 			using Coli::Detail::Json::try_fill;
 
 			decltype (val.myVelocity) tempVelocity;
-			try_fill (j, tempVelocity, name_velocity);
+			try_fill (j, tempVelocity, Keys::velocity);
 
 			decltype (val.myMaxVelocity) tempMaxVelocity;
-			try_fill (j, tempMaxVelocity, name_max_velocity);
+			try_fill (j, tempMaxVelocity, Keys::max_velocity);
 
 			decltype (val.mass) tempMass;
-			try_fill (j, tempMass, name_mass);
+			try_fill (j, tempMass, Keys::mass);
 
 			decltype (val.gravity) tempGravity;
-			try_fill (j, tempGravity, name_gravity);
+			try_fill (j, tempGravity, Keys::gravity);
 
 			decltype (val.collideRestitution) tempCollideRestitution;
-			try_fill (j, tempCollideRestitution, name_collide_rest);
+			try_fill (j, tempCollideRestitution, Keys::collide_rest);
 
 			decltype (val.movingResistance) tempMovingResistance;
-			try_fill (j, tempMovingResistance, name_moving_resist);
+			try_fill (j, tempMovingResistance, Keys::moving_resist);
 
 			val.myVelocity    = tempVelocity;
 			val.myMaxVelocity = tempMaxVelocity;
 
-			val.mass				 = tempMass;
-			val.gravity			 = tempGravity;
+			val.mass			   = tempMass;
+			val.gravity			   = tempGravity;
 			val.collideRestitution = tempCollideRestitution;
 			val.movingResistance   = tempMovingResistance;
 		}

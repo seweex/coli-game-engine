@@ -13,56 +13,49 @@ namespace Coli
 	{
 		namespace Components
 		{
-			template <std::floating_point _FloatTy, bool _Use2D>
+			template <bool _Use2D>
 			class BasicDrawable :
 				public  Game::ComponentBase,
-				private Graphics::Drawable<Geometry::BasicVertex<_FloatTy, _Use2D>>
+				private Graphics::Drawable <Geometry::BasicVertex<_Use2D>>
 			{
-				using _drawable_base = Graphics::Drawable<Geometry::BasicVertex<_FloatTy, _Use2D>>;
+				using base = Graphics::Drawable<Geometry::BasicVertex<_Use2D>>;
 
 			public:
-				using _drawable_base::set_material;
+				using base::set_material;
 
-				BasicDrawable(Geometry::Mesh<Geometry::BasicVertex<_FloatTy, _Use2D>> const& mesh) :
-					_drawable_base (mesh)
+				BasicDrawable(Geometry::Mesh <Geometry::BasicVertex <_Use2D>> const& mesh) :
+					base (mesh)
 				{}
 
-				void correct_on_start		()	    noexcept final {}
-				void correct_on_late_update (float) noexcept final {}
+				void start		 ()	     noexcept final {}
+				void late_update (float) noexcept final {}
 
-				void on_update(float) final {
+				void on_update (float) final 
+				{
 					if (auto transform = myTransform.lock())
-						this->update(*transform);
-					else
-						take_dependencies();
+						base::update(*transform);
+
+					else {
+						auto& owner = get_owner();
+						myTransform = owner.get_component <Game::Components::BasicTransform <_Use2D>>();
+					}						
 				}
 
-				void on_render_update() final {
-					myRenderer->draw(*this);
+				void on_render() final {
+					if (auto renderer = this->get_renderer())
+						renderer->draw(*this);
 				}
 
-				void take_dependencies() final {
-					myTransform = get_owner().get_component<BasicTransform<_FloatTy, _Use2D>>();
+				_NODISCARD static constexpr ComponentBase::Category get_category() noexcept {
+					return ComponentBase::Category::drawable;
 				}
-
-				_NODISCARD static constexpr Detail::ComponentCategory get_category() noexcept {
-					return Detail::ComponentCategory::drawable;
-				}
-
-				_NODISCARD nlohmann::json serialize() const noexcept final { return {}; }
-				void deserialize(nlohmann::json const&)     noexcept final {}
 
 			private:
-				using _drawable_base::myRenderer;
-
-				std::weak_ptr<Geometry::BasicTransform<_FloatTy, _Use2D> const> myTransform;
+				std::weak_ptr <Geometry::BasicTransform <_Use2D> const> myTransform;
 			};
 
-			template <std::floating_point _FloatTy>
-			using Drawable = BasicDrawable<_FloatTy, false>;
-			
-			template <std::floating_point _FloatTy>
-			using Drawable2D = BasicDrawable<_FloatTy, true>;
+			using Drawable   = BasicDrawable <false>;
+			using Drawable2D = BasicDrawable <true>;
 		}
 	}
 }

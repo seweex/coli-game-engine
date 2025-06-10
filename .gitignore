@@ -3,5 +3,5 @@
 /vcpkg.json
 /vcpkg-configuration.json
 /include/Example/
-/src/Main.cpp
+/src/Blocks.cpp
 build.bat

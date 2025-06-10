@@ -17,8 +17,10 @@
 #include <stdexcept>
 #include <execution>
 #include <syncstream>
+#include <filesystem>
 
 #include <locale>
+#include <random>
 #include <codecvt>
 #include <cwchar>
 #include <cstring>
@@ -42,3 +44,9 @@
 #include <GLFW/glfw3.h>
 
 #include <nlohmann/json.hpp>
+#include <tiny_obj_loader.h>
+
+#include "Common/Identifiable.hxx"
+#include "Common/KeepsChange.hxx"
+#include "Common/Singleton.hxx"
+#include "Common/Stateful.hxx"

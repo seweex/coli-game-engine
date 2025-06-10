@@ -3,192 +3,126 @@
 #include "../Common.hxx"
 #include "../Utility.hxx"
 
-#include "Module.hxx"
-
-#include "../Input/Map.hxx"
-#include "../File/Loader.hxx"
-#include "../Game/Scene.hxx"
-
-#include "../Graphics/Window.hxx"
+#include "Configuration.hxx"
+#include "TimeManager.hxx"
+#include "FileSystem.hxx"
+#include "GameSystem.hxx"
+#include "GraphicSystem.hxx"
 
 namespace Coli
 {
-	namespace Detail
-	{
-		class TimeManagerBase
-		{
-		protected:
-			TimeManagerBase() noexcept :
-				myCurrentTime  (std::chrono::system_clock::now()),
-				myPreviousTime (myCurrentTime)
-			{}
-
-			void update_time() noexcept {
-				myPreviousTime = myCurrentTime;
-				myCurrentTime  = std::chrono::system_clock::now();
-			}
-
-		public:
-			_NODISCARD float get_delta_time() const noexcept {
-				return std::chrono::duration_cast<std::chrono::duration<float>>(myCurrentTime - myPreviousTime).count();
-			}
-
-		private:
-			std::chrono::system_clock::time_point myCurrentTime;
-			std::chrono::system_clock::time_point myPreviousTime;
-		};
-	}
-
 	namespace Generic
 	{
-		class Engine final :
-			public Detail::TimeManagerBase
+		class Engine final
 		{
-			_NODISCARD std::string make_config_name() const 
-			{
-				using namespace std::string_literals;
-
-				return myApplicationName + ".config"s;
+			_NODISCARD std::string make_data_path() const {
+				return "./" + myApplicationName + "/data/";
 			}
 
-			_NODISCARD std::string make_scene_name(std::string_view name) const
-			{
-				using namespace std::string_literals;
+			void load() {
+				myInputSystem = std::make_shared <Input::Map> ();
+				myFileSystem  = std::make_unique <FileSystem> (make_data_path());
+				myGameSystem  = std::make_unique <GameSystem> (*this);
 
-				return name.data() + ".scene"s;
+				auto const configuration = myFileSystem->load_config();
+
+				myGraphicSystem = std::make_unique <GraphicSystem>(configuration.windowConfig);
+
+				auto& window = myGraphicSystem->get_window();
+				window.bind_input_map(myInputSystem);
 			}
 
 		public:
-			Engine (std::string_view applicationName) :
-				myApplicationName (applicationName),
-				myInputMap		  (std::make_unique<Input::Map>()),
-				myFileLoader	  (std::make_unique<File::Loader>()),
-				myShutdownFlag    (false)
+			Engine(std::string_view applicationName) :
+				myApplicationName (applicationName)
 			{
-				using namespace std::string_literals;
-
-				auto const settings = myFileLoader->load_settings(make_config_name());
-
-				myWindow.emplace(*myInputMap, applicationName, settings.windowWidth, settings.windowHeight);
+				load();
 			}
 
-			_NODISCARD Input::Map& get_input_manager() noexcept {
-				return *myInputMap;
+			Engine(Engine&&)      = delete;
+			Engine(Engine const&) = delete;
+
+			Engine& operator=(Engine&&)      = delete;
+			Engine& operator=(Engine const&) = delete;
+
+			_NODISCARD TimeManager const& get_time_manager() const noexcept {
+				return myTimeManager;
 			}
 
-			_NODISCARD File::Loader& get_file_manager() noexcept {
-				return *myFileLoader;
+			_NODISCARD GameSystem const& get_game_system() const noexcept {
+				return *myGameSystem;
 			}
 
-			_NODISCARD std::weak_ptr<Game::Scene> get_active_scene() noexcept {
-				return myScene;
+			_NODISCARD GameSystem& get_game_system() noexcept {
+				return *myGameSystem;
+			}
+			
+			_NODISCARD FileSystem const& get_file_system() const noexcept {
+				return *myFileSystem;
 			}
 
-			std::weak_ptr<Game::Scene> make_scene() {
-				return myScene = std::make_shared<Game::Scene>();
+			_NODISCARD FileSystem& get_file_system() noexcept {
+				return *myFileSystem;
 			}
 
-			void set_active_scene(std::shared_ptr<Game::Scene> scene) noexcept {
-				myScene.swap(scene);
+			_NODISCARD Input::Map const& get_input_system() const noexcept {
+				return *myInputSystem;
 			}
 
-			void save_settings() const
-			{
-				auto const [windowWidth, windowHeight] = myWindow->get_sizes();
-
-				Detail::Settings const settings   { windowWidth, windowHeight };
-				auto const			   configName = make_config_name();
-
-				myFileLoader->save_settings(make_config_name(), settings);
+			_NODISCARD Input::Map& get_input_system() noexcept {
+				return *myInputSystem;
 			}
 
-			void save_scene(std::string_view name) const
-			{
-				if (myScene) _LIKELY
-				{
-					auto const serialized = myScene->serialize();
-					auto const sceneName  = make_scene_name(name);
-					
-					myFileLoader->save_serialized(sceneName, serialized);
-				}
-			}
-
-			Game::Scene& load_scene(std::string_view name, Game::Scene& out) const
-			{
-				auto const deserialized = myFileLoader->load_serialized(make_scene_name(name));
-				
-				out.deserialize(deserialized);
-				return out;
-			}
-
-			Game::Scene& load_scene(std::string_view name) {
-				if (myScene)
-					return load_scene(name, *myScene);
-				else
-					throw std::runtime_error("provide a scene for deserializing");
-			}
-
-			void shutdown() noexcept {
-				myShutdownFlag = true;
+			void stop() {
+				myRunningFlag = false;
 			}
 
 			void run()
 			{
-				if (myScene) _LIKELY
+				auto& gameSystem = *myGameSystem;
+				auto& window     = myGraphicSystem->get_window();
+
+				while (myRunningFlag)
 				{
-					std::weak_ptr<Graphics::Renderer> activeRenderer;
-					std::weak_ptr<Detail::CameraBase> activeCamera;
+					auto deltaTime = myTimeManager.get_delta_time();
 
-					myWindow->show();
-					myScene->start_all();
+					gameSystem.update(deltaTime);
+					gameSystem.late_update(deltaTime);
+					gameSystem.render();
 
-					while (!myShutdownFlag)
-					{
-						if (activeRenderer.expired()) _UNLIKELY
-							activeRenderer = Detail::DrawableBase::get_renderer();
+					myTimeManager.update();
+					window.update();
 
-						if (activeCamera.expired()) _UNLIKELY 
-						{
-							activeCamera = myScene->get_active_camera();
-						    
-							if (auto lockedCamera = activeCamera.lock()) _LIKELY {
-								auto const [windowWidth, windowHeight] = myWindow->get_sizes();
-								lockedCamera->update_aspect(windowWidth / static_cast<float>(windowHeight));
-							}
-						}
-
-						{
-							auto renderer = activeRenderer.lock();
-							auto camera   = activeCamera.lock();
-
-							if (renderer && camera) _LIKELY
-								renderer->update(*camera);
-						}
-
-						auto const deltaTime = glm::max(get_delta_time(), std::numeric_limits<float>::epsilon());
-
-						myWindow-> update();
-						myScene->  update_all(deltaTime);
-						this->     update_time();
-
-						myShutdownFlag |= myWindow->should_close();
-					}
+					myRunningFlag = myRunningFlag && !window.should_close();
 				}
-				else
-					throw std::runtime_error("no active scene set");
+			}
+
+			void save() {
+				Configuration cfg;
+
+				auto& window = myGraphicSystem->get_window();
+				auto const [windowWidth, windowHeight] = window.size();
+
+				cfg.windowConfig.width = windowWidth;
+				cfg.windowConfig.height = windowHeight;
+				cfg.windowConfig.title = myApplicationName;
+
+				myFileSystem->save_config(cfg);
 			}
 
 		private:
+			/* necessary systems */
+			TimeManager						myTimeManager;
+			std::unique_ptr <GraphicSystem> myGraphicSystem;
+			std::unique_ptr <GameSystem>	myGameSystem;
+			std::unique_ptr <FileSystem>    myFileSystem;
+			std::shared_ptr <Input::Map>    myInputSystem;
+
+			/* lazy initialized (optional) systems */
+			// ...
+
 			std::string myApplicationName;
-
-			std::unique_ptr <Input::Map> const   myInputMap;
-			std::unique_ptr <File::Loader> const myFileLoader;
-			std::shared_ptr <Game::Scene>        myScene;
-
-			Graphics::Context				myContext;
-			std::optional<Graphics::Window> myWindow;
-
-			bool myShutdownFlag;
+			bool		myRunningFlag;
 		};
 	}
 }

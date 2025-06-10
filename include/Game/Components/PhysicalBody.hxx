@@ -3,8 +3,8 @@
 #include "../../Common.hxx"
 #include "../../Utility.hxx"
 
-#include "../Component.hxx"
 #include "Transform.hxx"
+#include "../Component.hxx"
 
 #include "../../Geometry/Collider.hxx"
 #include "../../Geometry/PhysicalBody.hxx"
@@ -16,53 +16,53 @@ namespace Coli
 		namespace Components
 		{
 			class PhysicalBodyBase :
-				public ComponentBase,
-				public virtual Detail::PolymorphicPhysicalBody
+				public Detail::AssetBase,
+				public ComponentBase
 			{
-			public:
-				void correct_on_start		  ()	  noexcept final {}
-				void correct_on_update		  (float) noexcept final {}
-				void correct_on_render_update ()	  noexcept final {}
+			protected:
+				PhysicalBodyBase() noexcept = default;
 
-				_NODISCARD static constexpr Detail::ComponentCategory get_category() noexcept {
-					return Detail::ComponentCategory::physical_body;
+			public:
+				void start()  noexcept final {}
+				void render() noexcept final {}
+				void on_update (float) noexcept final {}
+
+				_NODISCARD static constexpr ComponentBase::Category get_category() noexcept {
+					return ComponentBase::Category::physical_body;
 				}
 			};
 
-			template <std::floating_point _FloatTy, bool _Use2D>
+			template <bool _Use2D>
 			class BasicPhysicalBody final :
 				public PhysicalBodyBase,
-				public Geometry::BasicPhysicalBody<_FloatTy, _Use2D>
+				public Geometry::BasicPhysicalBody <_Use2D>
 			{
 			public:
-				void on_update(float) final {
-					if (!this->has_transform())
-						take_dependencies();
-				}
-
 				void on_late_update (float time) noexcept final {
 					this->apply_forces   (time);
 					this->apply_velocity (time);
 				}
 
-				void take_dependencies() final {
-					this->bind_transform(get_owner().get_component<BasicTransform<_FloatTy, _Use2D>>());
+				void on_restore(nlohmann::json const& obj) final
+				{
+					auto& base     = static_cast <Geometry::BasicPhysicalBody <_Use2D>&>(*this);
+					auto  restored = static_cast <Geometry::BasicPhysicalBody <_Use2D>>(obj);
+
+					base = restored;
 				}
 
-				_NODISCARD nlohmann::json serialize() const final {
-					return static_cast<Geometry::BasicPhysicalBody<_FloatTy, _Use2D> const&>(*this);
-				}
+				_NODISCARD nlohmann::json on_save() const final
+				{
+					auto const& base = static_cast <Geometry::BasicPhysicalBody <_Use2D> const&>(*this);
+					nlohmann::json object;
 
-				void deserialize(nlohmann::json const& obj) final {
-					Geometry::BasicPhysicalBody<_FloatTy, _Use2D>::operator=(obj);
+					object = base;
+					return object;
 				}
 			};
 
-			template <std::floating_point _FloatTy>
-			using PhysicalBody = BasicPhysicalBody<_FloatTy, false>;
-			
-			template <std::floating_point _FloatTy>
-			using PhysicalBody2D = BasicPhysicalBody<_FloatTy, true>;
+			using PhysicalBody   = BasicPhysicalBody <false>;
+			using PhysicalBody2D = BasicPhysicalBody <true>;
 		}
 	}
 }

@@ -4,6 +4,7 @@
 #include "../Utility.hxx"
 
 #include "Buffer.hxx"
+
 #include "../Geometry/Vertex.hxx"
 
 namespace Coli
@@ -11,18 +12,20 @@ namespace Coli
 	namespace Graphics 
 	{
 		template <Detail::Vertex _VertexTy>
-		class VertexArray final
+		class VertexArray final :
+			public Detail::ContextDependBase
 		{
-		public:
-			VertexArray(Detail::VertexBufferBase& vertices) 
-			{
-				if (!Context::is_ready())
-					throw std::runtime_error("no ready context");
+			static void x_failed_create() {
+				throw std::runtime_error("Failed to create a vertex array");
+			}
 
+		public:
+			VertexArray(Detail::BufferBase <BufferType::vertex> & vertices) 
+			{
 				glGenVertexArrays(1, &myHandle);
 
 				if (myHandle == 0)
-					throw std::runtime_error("failed to create a vertex array");
+					x_failed_create();
 
 				bind();
 				vertices.bind();
@@ -57,8 +60,14 @@ namespace Coli
 				glDeleteVertexArrays(1, &myHandle);
 			}
 
+			VertexArray(VertexArray&&)	    = delete;
+			VertexArray(VertexArray const&) = delete;
+
+			VertexArray& operator=(VertexArray&&)	   = delete;
+			VertexArray& operator=(VertexArray const&) = delete;
+
 			void bind() noexcept {
-				if (myHandle != current_binding) _LIKELY
+				if (myHandle != current_binding)
 					glBindVertexArray(current_binding = myHandle);
 			}
 

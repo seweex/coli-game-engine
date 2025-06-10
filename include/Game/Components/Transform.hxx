@@ -12,38 +12,45 @@ namespace Coli
 	{
 		namespace Components
 		{
-			template <std::floating_point _FloatTy, bool _Use2D>
+			template <bool _Use2D>
 			class BasicTransform final :
+				public Detail::AssetBase,
 				public ComponentBase,
-				public Geometry::BasicTransform <_FloatTy, _Use2D>
+				public Geometry::BasicTransform <_Use2D>
 			{
 			public:
-				void correct_on_start		  ()	  noexcept final {}
-				void correct_on_update		  (float) noexcept final {}
-				void correct_on_render_update ()	  noexcept final {}
+				void start ()  noexcept final {}
+				void render () noexcept final {}
+				void update (float) noexcept final {}
 
 				void on_late_update(float) noexcept final {
-					this->commit_change();
+					this->commit(*this);
+				}
+				
+				void on_restore(nlohmann::json const& obj) final
+				{
+					auto& base     = static_cast <Geometry::BasicTransform <_Use2D>&>(*this);
+					auto  restored = static_cast <Geometry::BasicTransform <_Use2D>>(obj);
+
+					base = restored;
 				}
 
-				_NODISCARD static constexpr Detail::ComponentCategory get_category() noexcept {
-					return Detail::ComponentCategory::transform;
+				_NODISCARD nlohmann::json on_save() const final
+				{
+					auto const& base = static_cast <Geometry::BasicTransform <_Use2D> const&>(*this);
+					nlohmann::json object;
+
+					object = base;
+					return object;
 				}
 
-				_NODISCARD nlohmann::json serialize() const final {
-					return static_cast<Geometry::BasicTransform<_FloatTy, _Use2D> const&>(*this);
-				}
-
-				void deserialize(nlohmann::json const& obj) final {
-					Geometry::BasicTransform<_FloatTy, _Use2D>::operator=(obj);
+				_NODISCARD static constexpr ComponentBase::Category get_category() noexcept {
+					return ComponentBase::Category::transform;
 				}
 			};
 
-			template <std::floating_point _FloatTy>
-			using Transform = BasicTransform<_FloatTy, false>;
-
-			template <std::floating_point _FloatTy>
-			using Transform2D = BasicTransform<_FloatTy, true>;
+			using Transform   = BasicTransform <false>;
+			using Transform2D = BasicTransform <true>;
 		}
 	}
 }

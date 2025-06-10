@@ -9,80 +9,63 @@ namespace Coli
 {
 	namespace Input
 	{
-		class Map final 
+		class Map final
 		{
+			static void x_no_axis_with_name() {
+				throw std::invalid_argument("There are no axes with this name");
+			}
+
+			static void x_axis_exists() {
+				throw std::invalid_argument("Another axis with the same name already exists");
+			}
+
 		public:
-			_NODISCARD double get_axis_value(std::string_view name) const 
+			Map() = default;
+
+			Map(Map&&)		= delete;
+			Map(Map const&) = delete;
+
+			Map& operator=(Map&&)	   = delete;
+			Map& operator=(Map const&) = delete;
+
+			template <std::derived_from <Detail::AxisBase> _Ty, class... _ArgTys>
+				requires (std::constructible_from <_Ty, _ArgTys...>)
+			void add_axis (std::string_view name, _ArgTys&&... args) 
 			{
-				auto iter = myAxes.find(name);
+				if (myAxes.contains(name))
+					x_axis_exists();
+
+				else {
+					auto ptr = std::make_shared<_Ty>(std::forward<_ArgTys>(args)...);
+					myAxes.emplace(name, std::move(ptr));
+				}
+			}
+
+			void remove_axis (std::string_view name) noexcept {
+				myAxes.erase(name);
+			}
+
+			_NODISCARD double get_value (std::string_view axisName) const noexcept
+			{
+				auto iter = myAxes.find(axisName);
 
 				if (iter != myAxes.end())
 					return iter->second->get_value();
-				else 
-					throw std::invalid_argument("no axis with this name");
 			}
 
-			void make_axis(
-				std::string_view name,
-				Detail::Button positive,
-				Detail::Button negative,
-				double activeVal = 1,
-				std::optional<Detail::Button> altPositive = std::nullopt,
-				std::optional<Detail::Button> altNegative = std::nullopt
-			) {
-				auto [iter, inserted] = myAxes.try_emplace(std::string(name), nullptr);
-
-				if (inserted) {
-					auto ptr = std::make_shared<KeyAxis>(activeVal, positive, negative, altPositive, altNegative);
-
-					iter->second = ptr;
-					myKeyAxes.insert(ptr);
-				}
-				else
-					throw std::runtime_error("another axis with the same name already exist");
-			}
-
-			void make_axis(std::string_view name, double sensitivity, Detail::MouseAxisDependence dependence)
-			{
-				auto [iter, inserted] = myAxes.try_emplace(std::string(name), nullptr);
-
-				if (inserted) {
-					auto ptr = std::make_shared<MouseAxis>(sensitivity, dependence);
-
-					iter->second = ptr;
-					myMouseAxes.insert(ptr);
-				}
-				else
-					throw std::runtime_error("another axis with the same name already exist");
-			}
-
-			void handle_input(double cursorX, double cursorY) noexcept  {
-				for (auto& mouseAxis : myMouseAxes)
-					mouseAxis->handle_input(cursorX, cursorY);
-			}
-
-			void handle_input(double wheel) noexcept {
-				for (auto& mouseAxis : myMouseAxes)
-					mouseAxis->handle_input(wheel);
-			}
-
-			void handle_input(int key, Detail::Action action) noexcept {
-				for (auto& keyAxis : myKeyAxes)
-					keyAxis->handle_input(key, action);
-			}
-
-			void handle_input(Detail::MouseButton button, Detail::Action action) noexcept {
-				for (auto& keyAxis : myKeyAxes)
-					keyAxis->handle_input(button, action);
+			template <std::derived_from <Detail::InputEventBase> _Ty>
+				requires (!std::same_as <_Ty, Detail::InputEventBase>)
+			void handle (_Ty const& event) noexcept {
+				for (auto& [_, axis] : myAxes)
+					axis->handle(event);
 			}
 
 		private:
-			std::unordered_map<std::string, std::shared_ptr<Detail::AxisBase>, 
-							   Detail::TransparentHash, std::equal_to<>>
+			std::unordered_map <std::string, 
+								std::unique_ptr <Detail::AxisBase>, 
+								Detail::TransparentHash, 
+								std::equal_to<>>
 			myAxes;
-
-			std::unordered_set<std::shared_ptr<KeyAxis>>   myKeyAxes;
-			std::unordered_set<std::shared_ptr<MouseAxis>> myMouseAxes;
 		};
 	}
 }

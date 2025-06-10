@@ -4,186 +4,399 @@
 #include "../Utility.hxx"
 
 #include "Context.hxx"
+
 #include "../Input/Map.hxx"
 
 namespace Coli
 {
 	namespace Graphics
 	{
+		inline namespace OpenGL 
+		{
+			class Window;
+		}
+	}
+
+	namespace Detail
+	{
 		inline namespace OpenGL
 		{
-			class Window final
+			class WindowHandle
 			{
-				static void key_callback(GLFWwindow* handle, 
-					int key, int scancode, int action, int mods
-				) noexcept
-				{
-					auto& inputHandler =  static_cast<Window*>(glfwGetWindowUserPointer(handle))
-									   -> myInputHandler;
-					
-					switch (action)
-					{
-					case GLFW_PRESS: _FALLTHROUGH;
-					case GLFW_REPEAT:
-						inputHandler.handle_input(key, Detail::Action::pressed);
-						break;
-
-					case GLFW_RELEASE:
-						inputHandler.handle_input(key, Detail::Action::released);
-						break;
-					}
+				static void x_no_context() {
+					throw std::runtime_error("Context doesn't exists");
 				}
 
-				static void mouse_callback(GLFWwindow* handle,
-					int inButton, int inAction, int mode
-				) noexcept
-				{
-					auto& inputHandler =  static_cast<Window*>(glfwGetWindowUserPointer(handle))
-									   -> myInputHandler;
-
-					Detail::MouseButton button;
-					Detail::Action	    action;
-
-					switch (inButton)
-					{
-					case GLFW_MOUSE_BUTTON_LEFT: 
-						button = Detail::MouseButton::left;
-						break;
-
-					case GLFW_MOUSE_BUTTON_MIDDLE:
-						button = Detail::MouseButton::middle;
-						break;
-
-					case GLFW_MOUSE_BUTTON_RIGHT:
-						button = Detail::MouseButton::right;
-						break;
-
-					case GLFW_MOUSE_BUTTON_4:
-						button = Detail::MouseButton::x1;
-						break;
-
-					case GLFW_MOUSE_BUTTON_5:
-						button = Detail::MouseButton::x2;
-						break;
-
-					default: return;
-					}
-
-					switch (inAction)
-					{
-					case GLFW_PRESS:
-						action = Detail::Action::pressed;
-						break;
-
-					case GLFW_RELEASE:
-						action = Detail::Action::released;
-						break;
-
-					default: return;
-					}
-
-					inputHandler.handle_input(button, action);
+				static void x_failed_create_window() {
+					throw std::runtime_error("Failed to create a window");
 				}
 
-				static void cursor_callback(GLFWwindow* handle, 
+			protected:
+				using user_type = Graphics::OpenGL::Window;
+
+				WindowHandle() noexcept = default;
+
+				WindowHandle (std::string_view title, int width, int height)
+				{
+					if (Graphics::OpenGL::Context::exist())
+					{
+						myHandle = glfwCreateWindow (width, 
+							height, title.data(), nullptr, nullptr);
+
+						if (myHandle) {
+							glfwMakeContextCurrent (myHandle);
+							glfwSetWindowAttrib	   (myHandle, GLFW_RESIZABLE, false);
+							glfwSetInputMode	   (myHandle, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+						}
+						else
+							x_failed_create_window();
+					}
+					else
+						x_no_context();
+				}
+			
+			public:
+				~WindowHandle() noexcept {
+					if (myHandle)
+						glfwDestroyWindow(myHandle);
+				}
+
+				WindowHandle(WindowHandle&&)	  = delete;
+				WindowHandle(WindowHandle const&) = delete;
+
+				WindowHandle& operator=(WindowHandle&&)		 = delete;
+				WindowHandle& operator=(WindowHandle const&) = delete;
+
+			protected:
+				void set_user_pointer (user_type* ptr) noexcept {
+					if (myHandle)
+						glfwSetWindowUserPointer(myHandle, ptr);						
+				}
+
+				void bind_input_handlers (
+					GLFWkeyfun		   key,
+					GLFWmousebuttonfun mouse,
+					GLFWcursorposfun   cursor,
+					GLFWscrollfun	   scroll
+				) noexcept
+				{
+					glfwSetKeyCallback		   (myHandle, key);
+					glfwSetMouseButtonCallback (myHandle, mouse);
+					glfwSetCursorPosCallback   (myHandle, cursor);
+					glfwSetScrollCallback	   (myHandle, scroll);
+				}
+
+				_NODISCARD GLFWwindow* get_handle() const noexcept {
+					return myHandle;
+				}
+
+			private:
+				GLFWwindow* myHandle = nullptr;
+			};
+
+			class WindowInputBase :
+				public virtual WindowHandle
+			{
+				using typename WindowHandle::user_type;
+
+				static void key_callback (GLFWwindow* handle, 
+					int key, int scancode, int act, int mods
+				) noexcept;
+
+				static void mouse_callback (GLFWwindow* handle,
+					int btn, int act, int mode
+				) noexcept;
+
+				static void cursor_callback (GLFWwindow* handle, 
 					double xPos, double yPos
-				) noexcept 
-				{
-					auto& inputHandler =  static_cast<Window*>(glfwGetWindowUserPointer(handle))
-									   -> myInputHandler;
+				) noexcept;
 
-					inputHandler.handle_input(xPos, yPos);
-				}
-
-				static void wheel_callback(GLFWwindow* handle,
+				static void wheel_callback (GLFWwindow* handle,
 					double xOffset, double yOffset
-				) noexcept
-				{
-					auto& inputHandler =  static_cast<Window*>(glfwGetWindowUserPointer(handle))
-									   -> myInputHandler;
+				) noexcept;
 
-					inputHandler.handle_input(yOffset);
+			protected:
+				WindowInputBase() noexcept {
+					this->bind_input_handlers (& key_callback,
+						& mouse_callback, & cursor_callback, & wheel_callback);
 				}
 
+			public:
+				WindowInputBase(WindowInputBase&&)		= delete;
+				WindowInputBase(WindowInputBase const&) = delete;
+
+				WindowInputBase& operator=(WindowInputBase&&)	   = delete;
+				WindowInputBase& operator=(WindowInputBase const&) = delete;
+
+				_NODISCARD void bind_input_map (std::weak_ptr <Input::Map> inputMap) noexcept {
+					myInputMap.swap(inputMap);
+				}
+
+			protected:
+				std::weak_ptr <Input::Map> myInputMap;
+			};
+		}
+	}
+
+	namespace Graphics
+	{
+		inline namespace OpenGL
+		{
+			class Window final :
+				public virtual Detail::OpenGL::WindowHandle,
+				public		   Detail::OpenGL::WindowInputBase
+			{
 				void configure() noexcept 
 				{
-					glClearColor(0, 0, 0, 1);
+					glClearColor (0, 0, 0, 1);
 
-					auto const [width, height] = get_sizes();
+					auto [width, height] = size();
 
 					glScissor  (0, 0, width, height);
 					glViewport (0, 0, width, height);
 
 					glEnable (GL_DEPTH_TEST);
 					glEnable (GL_SCISSOR_TEST);
-					glEnable (GL_CULL_FACE);
+					//glEnable (GL_CULL_FACE);
+					glDisable (GL_CULL_FACE);
 
 					glCullFace  (GL_BACK);
 					glFrontFace (GL_CW);
 				}
 
 			public:
-				Window(Input::Map& inputMap, std::string_view title, int width, int height) :
-					myInputHandler (inputMap)
+				struct Configuration {
+					std::string title = "Untitled";
+					int			width  = 640;
+					int			height = 480;
+				};
+
+				Window (Configuration const& config) :
+					WindowHandle (config.title, config.width, config.height)
 				{
-					if (!Context::exists())
-						throw std::runtime_error("context doesn't exists");
+					Context::load();
+					configure();
 
-					if (myHandle = glfwCreateWindow(width, height, title.data(), nullptr, nullptr))
-					{
-						glfwMakeContextCurrent   (myHandle);
-						glfwSetWindowUserPointer (myHandle, this);
-
-						glfwSetWindowAttrib		   (myHandle, GLFW_RESIZABLE, false);
-						glfwSetKeyCallback		   (myHandle, key_callback);
-						glfwSetMouseButtonCallback (myHandle, mouse_callback);
-						glfwSetCursorPosCallback   (myHandle, cursor_callback);
-						glfwSetScrollCallback	   (myHandle, wheel_callback);
-						glfwSetInputMode		   (myHandle, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-
-						glfwSwapInterval (0);
-
-						Context::load_opengl();
-						configure();
-					}
-					else
-						throw std::runtime_error("failed to create a window");
-				}
-
-				~Window() noexcept {
-					if (myHandle)
-						glfwDestroyWindow(myHandle);
+					set_user_pointer(this);
 				}
 				
-				Window(Window const&)		     = delete;
+				Window(Window&&)	  = delete;
+				Window(Window const&) = delete;
+
+				Window& operator=(Window&&)		 = delete;
 				Window& operator=(Window const&) = delete;
 
-				_NODISCARD std::pair<int, int> get_sizes() const noexcept
+				_NODISCARD std::pair<int, int> size() const noexcept
 				{
-					std::pair<int, int> sizes;
-					glfwGetWindowSize(myHandle, std::addressof(sizes.first), 
-												std::addressof(sizes.second));
+					auto handle = get_handle();
+					std::pair <int, int> sizes;
+
+					glfwGetWindowSize(handle, std::addressof(sizes.first),
+											  std::addressof(sizes.second));
 					return sizes;
 				}
 
-				_NODISCARD bool should_close() const noexcept {
-					return glfwWindowShouldClose(myHandle);
+				_NODISCARD bool should_close() const noexcept 
+				{
+					auto handle = get_handle();
+
+					if (handle)
+						return glfwWindowShouldClose(handle);
+					else
+						return true;
 				}
 
-				void update() noexcept {
-					glfwPollEvents();
-					glfwSwapBuffers(myHandle);
-					glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+				void update() noexcept 
+				{
+					constexpr auto clear_mask = GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT;
+					auto handle = get_handle();
+
+					glfwPollEvents  ();
+					glfwSwapBuffers (handle);
+					glClear			(clear_mask);
+									
 				}
 
 				void show() noexcept {
-					glfwShowWindow(myHandle);
+					auto handle = get_handle();
+					glfwShowWindow (handle);
 				}
 
-			private:
-				Input::Map& myInputHandler;
-				GLFWwindow* myHandle;
+				void hide() noexcept {
+					auto handle = get_handle();
+					glfwHideWindow (handle);
+				} 
 			};
 		}
 	}
+
+	namespace Detail
+	{
+		inline namespace OpenGL
+		{
+			void WindowInputBase::key_callback (GLFWwindow* handle,
+				int key, int scancode, int act, int mods
+			) noexcept
+			{
+				auto userPtr	  = static_cast<user_type*>(glfwGetWindowUserPointer(handle));
+				auto inputHandler = userPtr->myInputMap.lock();
+
+				if (inputHandler)
+				{
+					Input::Button button = static_cast<Input::KeyboardButton>(key);
+					Input::Action action;
+
+					switch (act)
+					{
+					case GLFW_PRESS: 
+						action = Input::Action::pressed;
+						break;
+
+					case GLFW_REPEAT:
+						action = Input::Action::hovered;
+						break;
+
+					case GLFW_RELEASE:
+						action = Input::Action::released;
+						break;
+
+					default:
+						return;
+					}
+
+					Input::ButtonEvent event { button, action };
+					inputHandler->handle(event);
+				}			
+			}
+
+			void WindowInputBase::mouse_callback (GLFWwindow* handle,
+				int btn, int act, int mode
+			) noexcept
+			{
+				auto userPtr	  = static_cast<user_type*>(glfwGetWindowUserPointer(handle));
+				auto inputHandler = userPtr->myInputMap.lock();
+
+				if (inputHandler)
+				{
+					Input::MouseButton button;
+					Input::Action	   action;
+
+					switch (act)
+					{
+					case GLFW_PRESS:
+						action = Input::Action::pressed;
+						break;
+
+					case GLFW_REPEAT:
+						action = Input::Action::hovered;
+						break;
+
+					case GLFW_RELEASE:
+						action = Input::Action::released;
+						break;
+
+					default:
+						return;
+					}
+
+					switch (btn)
+					{
+					case GLFW_MOUSE_BUTTON_LEFT: 
+						button = Input::MouseButton::left;
+						break;
+
+					case GLFW_MOUSE_BUTTON_MIDDLE:
+						button = Input::MouseButton::middle;
+						break;
+
+					case GLFW_MOUSE_BUTTON_RIGHT:
+						button = Input::MouseButton::right;
+						break;
+
+					case GLFW_MOUSE_BUTTON_4:
+						button = Input::MouseButton::x1;
+						break;
+
+					case GLFW_MOUSE_BUTTON_5:
+						button = Input::MouseButton::x2;
+						break;
+
+					default: 
+						return;
+					}
+
+					Input::ButtonEvent event { button, action };
+					inputHandler->handle(event);
+				}
+			}
+
+			void WindowInputBase::cursor_callback (GLFWwindow* handle,
+				double xPos, double yPos
+			) noexcept 
+			{
+				auto userPtr      = static_cast<user_type*>(glfwGetWindowUserPointer(handle));
+				auto inputHandler = userPtr->myInputMap.lock();
+
+				if (inputHandler) 
+				{
+					Input::MouseEvent event{ xPos, yPos };
+					inputHandler->handle(event);
+				}
+			}
+
+			void WindowInputBase::wheel_callback (GLFWwindow* handle,
+				double xOffset, double yOffset
+			) noexcept
+			{
+				auto userPtr      = static_cast<user_type*>(glfwGetWindowUserPointer(handle));
+				auto inputHandler = userPtr->myInputMap.lock();
+
+				if (inputHandler)
+				{
+					Input::MouseEvent event { yOffset };
+					inputHandler->handle(event);
+				}
+			}
+		}
+	}
+}
+
+namespace nlohmann
+{
+	template <>
+	struct adl_serializer <Coli::Graphics::Window::Configuration>
+	{
+	private:
+		struct Keys {
+			static constexpr std::string_view title  = "title";
+			static constexpr std::string_view width  = "width";
+			static constexpr std::string_view height = "height";
+		};
+
+	public:
+		static void to_json (json& j, Coli::Graphics::Window::Configuration const& val)
+		{
+			j[Keys::title]  = val.title;
+			j[Keys::width]  = val.width;
+			j[Keys::height] = val.height;
+		}
+
+		static void from_json (const json& j, Coli::Graphics::Window::Configuration& val)
+		{
+			using Coli::Detail::Json::try_fill;
+
+			decltype (val.title) tempTitle;
+			try_fill (j, tempTitle, Keys::title);
+
+			decltype (val.width) tempWidth;
+			try_fill (j, tempWidth, Keys::width);
+
+			decltype (val.height) tempHeight;
+			try_fill (j, tempHeight, Keys::height);
+
+			val.title  = std::move(tempTitle);
+			val.width  = tempWidth;
+			val.height = tempHeight;
+		}
+	};
 }

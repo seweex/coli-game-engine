@@ -9,20 +9,26 @@ namespace Coli
 {
 	namespace Graphics
 	{
-		class Texture final
+		class Texture final :
+			public Detail::ContextDependBase
 		{
-		public:
-			Texture(Visual::Texture const& texture)
-			{
-				if (!Context::is_ready())
-					throw std::runtime_error("no ready context");
+			static void x_failed_create() {
+				throw std::runtime_error("Failed to create a texture");
+			}
 
+			static void x_invalid_index() {
+				throw std::invalid_argument("Invalid index");
+			}
+
+		public:
+			Texture (Visual::Texture const& texture)
+			{
 				glCreateTextures(GL_TEXTURE_2D, 1, &myHandle);
 
 				if (myHandle == 0)
-					throw std::runtime_error("failed to create a texture");
+					x_failed_create();
 
-				auto [width, height] = texture.get_sizes();
+				auto [width, height] = texture.size();
 
 				glBindTexture(GL_TEXTURE_2D, myHandle);
 
@@ -31,32 +37,37 @@ namespace Coli
 				glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST_MIPMAP_NEAREST);
 
 				glTexStorage2D  (GL_TEXTURE_2D, 1, GL_RGBA8, width, height);
-				glTexSubImage2D (GL_TEXTURE_2D, 0, 0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, texture.get_data());
+				glTexSubImage2D (GL_TEXTURE_2D, 0, 0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, texture.data());
 
 				glGenerateMipmap (GL_TEXTURE_2D);
-				glBindTexture (GL_TEXTURE_2D, 0);
+				glBindTexture    (GL_TEXTURE_2D, 0);
 			}
 
 			~Texture() noexcept {
 				glDeleteTextures(1, &myHandle);
 			}
-			
+
+			Texture(Texture&&)	    = delete;
+			Texture(Texture const&) = delete;
+
+			Texture& operator=(Texture&&)	   = delete;
+			Texture& operator=(Texture const&) = delete;
+
 			void bind(unsigned index)
 			{
-				if (index < indexed_bindings.size()) _LIKELY {
-					if (indexed_bindings[index] != myHandle) _LIKELY
-					{
+				if (index < indexed_bindings.size()) {
+					if (indexed_bindings [index] != myHandle) {
 						glActiveTexture (GL_TEXTURE0 + index);
 						glBindTexture   (GL_TEXTURE_2D, indexed_bindings[index] = myHandle);
 					}
 				}
 				else
-					throw std::invalid_argument("invalid index");
+					x_invalid_index();
 			}
 
 			static void unbind(unsigned index) noexcept
 			{
-				if (index < indexed_bindings.size()) _LIKELY {
+				if (index < indexed_bindings.size()) {
 					glActiveTexture (GL_TEXTURE0 + index);
 					glBindTexture   (GL_TEXTURE_2D, indexed_bindings[index] = 0);
 				}
@@ -64,7 +75,7 @@ namespace Coli
 
 		private:
 			static inline std::array<GLuint, 5> indexed_bindings = { 0 };
-			static inline GLuint				current_binding = 0;
+			static inline GLuint				current_binding  = 0;
 
 			GLuint myHandle = 0;
 		};

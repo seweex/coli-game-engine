@@ -3,32 +3,49 @@
 #include "../Common.hxx"
 #include "../Utility.hxx"
 
+namespace Coli
+{
+	namespace Detail
+	{
+		template <class _Ty>
+		inline constexpr std::nullptr_t default_rotator;
+
+		template <>
+		inline constexpr double default_rotator <double> = 0;
+
+		template <>
+		inline constexpr glm::dquat default_rotator <glm::dquat> = glm::dquat::wxyz(1.0, 0.0, 0.0, 0.0);
+	}
+}
+
 namespace std
 {
 	template <glm::length_t _L, class _T, glm::qualifier _Q>
-	struct hash<glm::vec<_L, _T, _Q>>
+	struct hash <glm::vec<_L, _T, _Q>>
 	{
-		_NODISCARD size_t operator()(glm::vec<_L, _T, _Q> const& val) const noexcept requires (_L > 0)
+		_NODISCARD size_t operator()(glm::vec<_L, _T, _Q> const& val) const noexcept
 		{
-			size_t hash = Coli::Detail::FNV::start_value;
+			Coli::Detail::HashMixer mixer;
+			size_t hash = Coli::Detail::HashMixer::start_value;
 
 			for (glm::length_t i = 0; i < _L; ++i)
-				hash = Coli::Detail::FNV::mix_hash(std::hash<_T>{}(val[i]), hash);
+				hash = mixer(std::hash<_T>{}(val[i]), hash);
 
 			return hash;
 		}
 	};
 
 	template <glm::length_t _C, glm::length_t _R, class _T, glm::qualifier _Q>
-	struct hash<glm::mat<_C, _R, _T, _Q>>
+	struct hash <glm::mat<_C, _R, _T, _Q>>
 	{
-		_NODISCARD size_t operator()(glm::mat<_C, _R, _T, _Q> const& val) const noexcept requires(_C > 0 && _R > 0)
+		_NODISCARD size_t operator()(glm::mat<_C, _R, _T, _Q> const& val) const noexcept
 		{
-			size_t hash = Coli::Detail::FNV::start_value;
+			Coli::Detail::HashMixer mixer;
+			size_t hash = Coli::Detail::HashMixer::start_value;
 
 			for (glm::length_t i = 0; i < _C; ++i)
 			for (glm::length_t j = 0; j < _R; ++j)
-				hash = Coli::Detail::FNV::mix_hash(std::hash<_T>{}(val[i][j]), hash);
+				hash = mixer(std::hash<_T>{}(val[i][j]), hash);
 
 			return hash;
 		}
@@ -39,10 +56,11 @@ namespace std
 	{
 		_NODISCARD size_t operator()(glm::qua<_T, _Q> const& val) const noexcept
 		{
-			size_t hash = Coli::Detail::FNV::start_value;
+			Coli::Detail::HashMixer mixer;
+			size_t hash = Coli::Detail::HashMixer::start_value;
 			
 			for (glm::length_t i = 0; i < 4; ++i)
-				hash = Coli::Detail::FNV::mix_hash(std::hash<_T>{}(val[i]), hash);
+				hash = mixer(std::hash<_T>{}(val[i]), hash);
 
 			return hash;
 		}
@@ -54,8 +72,10 @@ namespace nlohmann
 	template <glm::length_t _L, class _T, glm::qualifier _Q>
 	struct adl_serializer <glm::vec<_L, _T, _Q>> 
 	{
-		static void to_json(json& j, const glm::vec<_L, _T, _Q>& val)
+		static void to_json(json& j, const glm::vec<_L, _T, _Q>& val) 
 		{
+			j = json::array();
+
 			for (glm::length_t i = 0; i < _L; ++i)
 				j.push_back(val[i]);
 		}
@@ -66,7 +86,7 @@ namespace nlohmann
 				for (glm::length_t i = 0; i < _L; ++i)
 					val[i] = j[i].get<_T>();
 			else
-				throw std::invalid_argument("invalid json object");
+				throw std::invalid_argument("Invalid json object");
 		}
 	};
 
@@ -75,6 +95,7 @@ namespace nlohmann
 	{
 		static void to_json(json& j, const glm::mat<_C, _R, _T, _Q>& val)
 		{
+			j = json::array();
 			json column;
 
 			for (glm::length_t i = 0; i < _C; ++i) {
@@ -91,7 +112,7 @@ namespace nlohmann
 				for (glm::length_t i = 0; i < _C; ++i)
 					adl_serializer<typename glm::mat<_C, _R, _T, _Q>::col_type>::from_json(j[i], val[i]);
 			else
-				throw std::invalid_argument("invalid json object");
+				throw std::invalid_argument("Invalid json object");
 		}
 	};
 
@@ -100,6 +121,8 @@ namespace nlohmann
 	{
 		static void to_json(json& j, const glm::qua<_T, _Q>& val)
 		{
+			j = json::array();
+
 			for (glm::length_t i = 0; i < glm::qua<_T, _Q>::length(); ++i)
 				j.push_back(val[i]);
 		}

@@ -5,60 +5,132 @@
 
 namespace Coli
 {
-	namespace Graphics
+	namespace Detail 
 	{
-		inline namespace OpenGL
+		inline namespace OpenGL 
 		{
-			class Context final
+			class ResourceBase;
+
+			class GLADContext 
 			{
-				static void load_opengl() {
-					if (!opengl_loaded) 
-					{
+				static void x_failed_load() {
+					throw std::runtime_error("Failed to load GLAD");
+				}
+
+			protected:
+				GLADContext() noexcept = default;
+
+				static void load() {
+					if (!loaded) {
 						if (!gladLoadGL())
-							throw std::runtime_error("failed to load OpenGL");
-						
-						opengl_loaded = true;
+							x_failed_load();
+
+						loaded = true;
 					}
 				}
 
 			public:
-				Context() {
-					if (!context_exists) 
-					{
+				GLADContext(GLADContext&&)		= delete;
+				GLADContext(GLADContext const&) = delete;
+
+				GLADContext& operator=(GLADContext&&)	   = delete;
+				GLADContext& operator=(GLADContext const&) = delete;
+
+				_NODISCARD static bool is_loaded() noexcept {
+					return loaded;
+				}
+
+			protected:
+				static inline bool loaded = false;
+			};
+
+			class GLFWContext
+			{
+				static void x_failed_init() {
+					throw std::runtime_error("Failed to initialize GLFW");
+				}
+
+			protected:
+				GLFWContext() noexcept = default;
+
+				static void initialize() {
+					if (!initialized) {
 						if (!glfwInit())
-							throw std::runtime_error("failed to init context");
+							x_failed_init();
 
-						glfwWindowHint(GLFW_VISIBLE, false);
-						glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-						glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
-						glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-
-						context_exists = true;
+						initialized = true;
 					}
-					else
-						throw std::runtime_error("another context already exist");
 				}
 
-				~Context() noexcept {
-					glfwTerminate();
+			public:
+				~GLFWContext() noexcept {
+					if (initialized) {
+						glfwTerminate();
+						initialized = false;
+					}
 				}
 
-				Context(Context const&)			   = delete;
+				GLFWContext(GLFWContext&&)	    = delete;
+				GLFWContext(GLFWContext const&) = delete;
+
+				GLFWContext& operator=(GLFWContext&&)	   = delete;
+				GLFWContext& operator=(GLFWContext const&) = delete;
+
+				_NODISCARD static bool is_initialized() noexcept {
+					return initialized;
+				}
+				
+			private:
+				static inline bool initialized = false;
+			};
+		}
+	}
+
+	namespace Graphics
+	{
+		inline namespace OpenGL
+		{
+			class Context final :
+				public  Detail::SingletonBase <Context>,
+				private Detail::OpenGL::GLFWContext,
+				private Detail::OpenGL::GLADContext
+			{
+			public:
+				Context() {
+					GLFWContext::initialize();
+				}
+
+				Context(Context&&)		= delete;
+				Context(Context const&) = delete;
+
+				Context& operator=(Context&&)	   = delete;
 				Context& operator=(Context const&) = delete;
 
-				_NODISCARD static bool exists() noexcept {
-					return context_exists;
-				}
-
 				_NODISCARD static bool is_ready() noexcept {
-					return opengl_loaded && context_exists;
+					return GLADContext::is_loaded() && GLFWContext::is_initialized();
+				}
+			
+			private:
+				static void load() {
+					GLADContext::load();
 				}
 
 				friend class Window;
+			};
+		}
+	}
 
-			private:
-				static inline bool context_exists = false;
-				static inline bool opengl_loaded  = false;
+	namespace Detail
+	{
+		inline namespace OpenGL
+		{
+			class ContextDependBase
+			{
+			public:
+				ContextDependBase() {
+					if (!Graphics::Context::is_ready())
+						throw std::runtime_error("No context ready");
+				}
 			};
 		}
 	}

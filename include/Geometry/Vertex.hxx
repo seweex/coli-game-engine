@@ -7,22 +7,17 @@ namespace Coli
 {
 	namespace Geometry
 	{
-		template <std::floating_point _FloatTy, bool _Use2D>
+		template <bool _Use2D>
 		struct BasicVertex 
 		{
-			using float_type = _FloatTy;
-
 			_NODISCARD constexpr bool operator==(BasicVertex const&) const noexcept = default;
 
-			glm::vec<_Use2D ? 2 : 3, _FloatTy> position;
-			glm::vec<2, _FloatTy>			   texcoord;
+			glm::vec<_Use2D ? 2 : 3, double> position;
+			glm::dvec2			             texcoord;
 		};
 
-		template <std::floating_point _FloatTy>
-		using Vertex = BasicVertex<_FloatTy, false>;
-
-		template <std::floating_point _FloatTy>
-		using Vertex2D = BasicVertex<_FloatTy, true>;
+		using Vertex   = BasicVertex <false>;
+		using Vertex2D = BasicVertex <true>;
 	}
 
 	namespace Detail
@@ -32,8 +27,6 @@ namespace Coli
 		{
 			_val.position;
 			_val.texcoord;
-
-			typename _Ty::float_type;
 		};
 
 		template <Vertex _VertexTy>
@@ -41,18 +34,17 @@ namespace Coli
 		{
 		public:
 			using vertex_type = _VertexTy;
-			using float_type  = typename _VertexTy::float_type;
 
 			_NODISCARD static constexpr bool is_2D() noexcept {
 				return position_length() == 2;
 			}
 
 			_NODISCARD static constexpr size_t position_length() noexcept {
-				return sizeof(std::declval<_VertexTy>().position) / sizeof(typename _VertexTy::float_type);
+				return sizeof(_VertexTy::position) / sizeof(double);
 			}
 
 			_NODISCARD static constexpr size_t texcoord_length() noexcept {
-				return sizeof(std::declval<_VertexTy>().texcoord) / sizeof(typename _VertexTy::float_type);
+				return sizeof(_VertexTy::texcoord) / sizeof(double);
 			}
 
 			_NODISCARD static constexpr size_t position_offset() noexcept {
@@ -67,15 +59,8 @@ namespace Coli
 				return sizeof(_VertexTy);
 			}
 
-			_NODISCARD static constexpr GLenum float_type_enum() noexcept 
-			{
-				if constexpr (std::same_as<float_type, float>)
-					return GL_FLOAT;
-
-				else if constexpr (std::same_as<float_type, double>)
-					return GL_DOUBLE;
-
-				else static_assert(false, "OpenGL doesn't support this float type");
+			_NODISCARD static constexpr GLenum float_type_enum() noexcept {
+				return GL_DOUBLE;
 			}
 		};
 	}
@@ -83,13 +68,16 @@ namespace Coli
 
 namespace std
 {
-	template <class _FloatTy, bool _Use2D>
-	struct hash <Coli::Geometry::BasicVertex<_FloatTy, _Use2D>>
+	template <bool _Use2D>
+	struct hash <Coli::Geometry::BasicVertex<_Use2D>>
 	{
-		_NODISCARD size_t operator()(Coli::Geometry::BasicVertex<_FloatTy, _Use2D> const& val) const noexcept
+		_NODISCARD size_t operator()(Coli::Geometry::BasicVertex<_Use2D> const& val) const noexcept
 		{			
-			size_t hash = Coli::Detail::FNV::mix_hash(std::hash<decltype(val.position)>{}(val.position));
-				   hash = Coli::Detail::FNV::mix_hash(std::hash<decltype(val.texcoord)>{}(val.texcoord), hash);
+			Coli::Detail::HashMixer mixer;
+			size_t hash;
+
+			hash = mixer(std::hash<decltype(val.position)>{}(val.position));
+			hash = mixer(std::hash<decltype(val.texcoord)>{}(val.texcoord), hash);
 
 			return hash;
 		}

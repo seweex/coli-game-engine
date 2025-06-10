@@ -19,7 +19,8 @@ namespace Coli
 			_Type == ShaderType::geometry ||
 			_Type == ShaderType::fragment 
 		)
-		class Shader final
+		class Shader final :
+			public Detail::ContextDependBase
 		{
 			_NODISCARD static constexpr GLenum get_type_gl() noexcept 
 			{
@@ -36,14 +37,19 @@ namespace Coli
 				}
 			}
 
+			static void x_failed_create() {
+				throw std::runtime_error("Failed to create a shader");
+			}
+
+			static void x_failed_compile() {
+				throw std::runtime_error("Failed to compile the shader");
+			}
+
 		public:
 			Shader (std::string_view sourceCode) 
 			{
-				if (!Context::is_ready())
-					throw std::runtime_error("no ready context");
-
 				if ((myHandle = glCreateShader(get_type_gl())) == 0)
-					throw std::runtime_error("failed to create a shader");
+					x_failed_create();
 
 				auto data = sourceCode.data();
 				auto size = static_cast<int>(sourceCode.size());
@@ -55,12 +61,18 @@ namespace Coli
 				glGetShaderiv(myHandle, GL_COMPILE_STATUS, &flag);
 
 				if (flag == GL_FALSE)
-					throw std::runtime_error("failed to compile the shader");
+					x_failed_compile();
 			}
 
 			~Shader() noexcept {
 				glDeleteShader(myHandle);
 			}
+
+			Shader(Shader&&)	  = delete;
+			Shader(Shader const&) = delete;
+
+			Shader& operator=(Shader&&)		 = delete;
+			Shader& operator=(Shader const&) = delete;
 
 			friend class Program;
 
@@ -71,49 +83,49 @@ namespace Coli
 		using VertexShader   = Shader <ShaderType::vertex>;
 		using FragmentShader = Shader <ShaderType::fragment>;
 		using GeometryShader = Shader <ShaderType::geometry>;
-	}
 
-	namespace Detail
-	{
-		constexpr std::string_view default_vertex_shader = {
-			"#version 450 core\n"
+		namespace ShaderCode 
+		{
+			inline constexpr std::string_view vertex = {
+				"#version 450 core\n"
 
-			"layout (location = 0) in vec3 inPosition;\n"
-			"layout (location = 1) in vec2 inTexcoord;\n"
+				"layout (location = 0) in vec3 inPosition;\n"
+				"layout (location = 1) in vec2 inTexcoord;\n"
 
-			"layout (std140, binding = 0) uniform CameraBlock\n"
-			"{\n"
-				"mat4 cameraViewMat;\n"
-				"mat4 cameraProjMat;\n"
-			"};\n"
+				"layout (std140, binding = 0) uniform CameraBlock\n"
+				"{\n"
+					"mat4 cameraViewMat;\n"
+					"mat4 cameraProjMat;\n"
+				"};\n"
 
-			"layout (std140, binding = 1) uniform ModelBlock\n"
-			"{\n"
-				"mat4 modelMat;\n"
-			"};\n"
+				"layout (std140, binding = 1) uniform ModelBlock\n"
+				"{\n"
+					"mat4 modelMat;\n"
+				"};\n"
 
-			"out vec2 imTexcoord;\n"
+				"out vec2 imTexcoord;\n"
 
-			"void main()\n"
-			"{\n"
-				"imTexcoord  = inTexcoord;\n"
-				"gl_Position = cameraProjMat * cameraViewMat * modelMat * vec4(inPosition, 1);\n"
-			"}\n"
-		};
+				"void main()\n"
+				"{\n"
+					"imTexcoord  = inTexcoord;\n"
+					"gl_Position = cameraProjMat * cameraViewMat * modelMat * vec4(inPosition, 1);\n"
+				"}\n"
+			};
 
-		constexpr std::string_view default_pixel_shader = {
-			"#version 450 core\n"
+			inline constexpr std::string_view pixel = {
+				"#version 450 core\n"
 
-			"in vec2 imTexcoord;\n"
+				"in vec2 imTexcoord;\n"
 
-			"layout (binding = 0) uniform sampler2D diffuseTexture;\n"
+				"layout (binding = 0) uniform sampler2D diffuseTexture;\n"
 
-			"out vec4 color;\n"
+				"out vec4 color;\n"
 
-			"void main()\n"
-			"{\n"
-				"color = vec4(imTexcoord, 0, 1);\n"
-			"}\n" 
-		};
+				"void main()\n"
+				"{\n"
+					"color = texture(diffuseTexture, imTexcoord);\n"
+				"}\n"
+			};
+		}
 	}
 }

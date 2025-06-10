@@ -9,18 +9,24 @@ namespace Coli
 {
 	namespace Graphics
 	{
-		class Program final
+		class Program final :
+			public Detail::ContextDependBase
 		{
+			static void x_failed_create() {
+				throw std::runtime_error("Failed to create a program");
+			}
+
+			static void x_failed_link() {
+				throw std::runtime_error("Failed to link the program");
+			}
+
 		public:
-			Program(
+			Program (
 				VertexShader&   vertex,
 				FragmentShader& fragment
 			) {
-				if (!Context::is_ready())
-					throw std::runtime_error("no ready context");
-
 				if ((myHandle = glCreateProgram()) == 0)
-					throw std::runtime_error("failed to create a program");
+					x_failed_create();
 
 				glAttachShader (myHandle, vertex.myHandle);
 				glAttachShader (myHandle, fragment.myHandle);
@@ -34,19 +40,16 @@ namespace Coli
 				glGetProgramiv(myHandle, GL_LINK_STATUS, &flag);
 
 				if (flag == GL_FALSE)
-					throw std::runtime_error("failed to link the program");
+					x_failed_link();
 			}
 
-			Program(
-				VertexShader& vertex,
+			Program (
+				VertexShader&   vertex,
 				FragmentShader& fragment,
 				GeometryShader& geometry
 			) {
-				if (!Context::is_ready())
-					throw std::runtime_error("no ready context");
-
 				if ((myHandle = glCreateProgram()) == 0)
-					throw std::runtime_error("failed to create a program");
+					x_failed_create();
 
 				glAttachShader(myHandle, vertex.myHandle);
 				glAttachShader(myHandle, fragment.myHandle);
@@ -62,20 +65,26 @@ namespace Coli
 				glGetProgramiv(myHandle, GL_LINK_STATUS, &flag);
 
 				if (flag == GL_FALSE)
-					throw std::runtime_error("failed to link the program");
+					x_failed_link();
 			}
 
 			~Program() noexcept {
 				glDeleteProgram(myHandle);
 			}
 
+			Program(Program&&)      = delete;
+			Program(Program const&) = delete;
+
+			Program& operator=(Program&&)	   = delete;
+			Program& operator=(Program const&) = delete;
+
 			void bind() noexcept {
 				if (myHandle != current_binding)
-					glUseProgram(current_binding = myHandle);
+					glUseProgram (current_binding = myHandle);
 			}
 
 			static void unbind() noexcept {
-				glUseProgram(current_binding = 0);
+				glUseProgram (current_binding = 0);
 			}
 
 		private:

@@ -24,7 +24,8 @@ namespace Coli
 			_Type == Graphics::BufferType::uniform ||
 			_Type == Graphics::BufferType::index   
 		)
-		class BufferBase
+		class BufferBase :
+			public Detail::ContextDependBase
 		{
 		protected:
 			_NODISCARD static constexpr GLenum get_type_gl() noexcept
@@ -42,33 +43,37 @@ namespace Coli
 				}
 			}
 
-		protected:
-			_NODISCARD static std::pair<const void*, size_t> take_memory(auto const& val) noexcept 
+			template <class _Ty> requires (std::is_object_v<_Ty>)
+			_NODISCARD static DataProxy take_memory (_Ty const& val) noexcept
 			{
-				using unspecified_type = std::remove_cvref_t<decltype(val)>;
-
-				if constexpr (std::is_array_v<unspecified_type>)
+				if constexpr (std::is_array_v<_Ty>)
 					return { val, sizeof(val) };
 
-				else if constexpr (std::indirectly_readable<unspecified_type>)
+				else if constexpr (std::indirectly_readable <_Ty>)
 					return { &*val, sizeof(*val) };
 
-				else if constexpr (LinearContainer<unspecified_type>)
-					return { val.data(), val.size() * sizeof(typename unspecified_type::value_type) };
+				else if constexpr (LinearContainer <_Ty>)
+					return { val.data(), val.size() * sizeof(typename _Ty::value_type) };
 
 				else return { &val, sizeof(val) };
+			}
+
+		private:
+			static void x_failed_create() {
+				throw std::runtime_error("Failed to create a buffer");
+			}
+
+			static void x_invalid_index() {
+				throw std::invalid_argument("Invalid index");
 			}
 
 		public:
 			BufferBase()
 			{
-				if (!Graphics::Context::is_ready())
-					throw std::runtime_error("no ready context");
-				
-				glGenBuffers(1, &myHandle);
+				glGenBuffers (1, &myHandle);
 				
 				if (myHandle == 0)
-					throw std::runtime_error("failed to create a buffer");
+					x_failed_create();
 
 				this->bind();
 				this->unbind();
@@ -77,6 +82,12 @@ namespace Coli
 			~BufferBase() noexcept {
 				glDeleteBuffers(1, &myHandle);
 			}
+
+			BufferBase(BufferBase&&)	  = delete;
+			BufferBase(BufferBase const&) = delete;
+
+			BufferBase& operator=(BufferBase&&)		 = delete;
+			BufferBase& operator=(BufferBase const&) = delete;
 
 			void bind() noexcept {
 				if (myHandle != current_binding)
@@ -87,17 +98,17 @@ namespace Coli
 				glBindBuffer(get_type_gl(), current_binding = 0);
 			}
 
-			void bind(unsigned index) {
-				if (index < indexed_bindings.size()) _LIKELY {
-					if (myHandle != indexed_bindings[index]) _LIKELY
-						glBindBufferBase(get_type_gl(), index, indexed_bindings[index] = myHandle);
-				} 
+			void bind (unsigned index) {
+				if (index < indexed_bindings.size()) {
+					if (myHandle != indexed_bindings[index])
+						glBindBufferBase (get_type_gl(), index, indexed_bindings[index] = myHandle);
+				}
 				else
-					throw std::invalid_argument("invalid index");				
+					x_invalid_index();
 			}
 
-			static void unbind(unsigned index) noexcept {
-				if (index < indexed_bindings.size()) _LIKELY
+			static void unbind (unsigned index) noexcept {
+				if (index < indexed_bindings.size())
 					glBindBufferBase(get_type_gl(), index, indexed_bindings[index] = 0);
 			}
 
@@ -108,8 +119,6 @@ namespace Coli
 		protected:
 			GLuint myHandle = 0;
 		};
-
-		using VertexBufferBase = BufferBase<Graphics::BufferType::vertex>;
 	}
 
 	namespace Graphics
@@ -123,7 +132,7 @@ namespace Coli
 				mySize (0),
 				myData (nullptr)
 			{
-				assign(initData);
+				assign (initData);
 			}
 
 			~Buffer() noexcept {
@@ -188,8 +197,12 @@ namespace Coli
 			using Detail::BufferBase<_Type>::myHandle;
 		};
 
-		using VertexStorage = Storage <BufferType::vertex>;
-		using IndexStorage  = Storage <BufferType::index>;
-		using UniformBuffer = Buffer  <BufferType::uniform>;
+		using VertexStorage  = Storage <BufferType::vertex>;
+		using IndexStorage   = Storage <BufferType::index>;
+		using UniformStorage = Storage <BufferType::uniform>;
+
+		using VertexBuffer  = Buffer <BufferType::vertex>;
+		using IndexBuffer   = Buffer <BufferType::index>;
+		using UniformBuffer = Buffer <BufferType::uniform>;
 	}
 }

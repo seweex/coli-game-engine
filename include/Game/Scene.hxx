@@ -4,6 +4,7 @@
 #include "../Utility.hxx"
 
 #include "Object.hxx"
+
 #include "../Visual/Camera.hxx"
 
 #include "Components/PhysicalBody.hxx"
@@ -11,186 +12,147 @@
 
 namespace Coli
 {
-	namespace Game
+	namespace Generic
 	{
-		class Scene final
+		class Engine;
+	}
+
+	namespace Detail
+	{
+		class ObjectsContainerBase :
+			public std::enable_shared_from_this <ObjectsContainerBase>
 		{
-			void sort_by_layers()
-			{
-				std::vector<std::shared_ptr<Object>> toReinsert;
-				toReinsert.reserve(myObjects.size());
-
-				for (auto iter = myObjects.begin();
-					 iter     != myObjects.end();
-				) {
-					if ((*iter)->has_layer_changed()) _UNLIKELY
-					{
-						auto ptr = std::move(myObjects.extract(iter++).value());
-						ptr->reset_layer_change();
-						
-						toReinsert.push_back(std::move(ptr));
-					}
-					else 
-						++iter;
-				}
-
-				myObjects.insert(std::make_move_iterator(toReinsert.begin()),
-								 std::make_move_iterator(toReinsert.end()));
-			}
-
-			void find_collisions()
-			{
-				std::vector <std::shared_ptr<Components::ColliderBase>> colliders;
-				std::unordered_map <std::shared_ptr<Components::ColliderBase>,
-								    std::shared_ptr<Components::PhysicalBodyBase>>
-				recievers;
-				
-				recievers.reserve(myObjects.size());
-				colliders.reserve(myObjects.size());
-
-				for (auto const& obj : myObjects)
-					if (auto colliderComponent = obj->try_get_component<Components::ColliderBase>().lock()) _UNLIKELY
-					{
-						if (auto physicalComponent = obj->try_get_component<Components::PhysicalBodyBase>().lock()) _UNLIKELY
-							recievers.emplace(colliderComponent, physicalComponent);
-						
-						colliders.emplace_back(colliderComponent);
-					}
-
-				for (size_t i = 0; i < colliders.size(); ++i)
-				{
-					auto&      leftCollider    = colliders[i];
-					auto	   leftPhysical    = recievers.find(leftCollider);
-					bool const hasLeftPhysical = leftPhysical != recievers.end();
-
-					for (size_t j = i + 1; j < colliders.size(); ++j)
-					{
-						auto&      rightCollider    = colliders[j];
-						auto       rightPhysical    = recievers.find(rightCollider);
-						bool const hasRightPhysical = rightPhysical != recievers.end();
-
-						if (hasLeftPhysical && hasRightPhysical) _UNLIKELY
-						{
-							auto& thisPhysical  = (hasLeftPhysical ? leftPhysical : rightPhysical)->second;
-							auto& otherPhysical = (hasLeftPhysical ? rightPhysical : leftPhysical)->second;
-							
-							if (auto collision = leftCollider->find_collision(*rightCollider)) _UNLIKELY
-								thisPhysical->report_collision(*collision, *otherPhysical);
-						}
-						else if (hasLeftPhysical || hasRightPhysical) _LIKELY
-						{
-							auto& thisPhysical = (hasLeftPhysical ? leftPhysical : rightPhysical)->second;
-
-							if (auto collision = leftCollider->find_collision(*rightCollider)) _UNLIKELY
-								thisPhysical->report_collision(*collision);
-						}
-					}
-				}
-			}
+		protected:
+			ObjectsContainerBase() = default;
 
 		public:
-			template <std::derived_from<Object> _Ty = Object, class..._ArgTys>
-			_Ty& make_object(_ArgTys&&... args)
+			ObjectsContainerBase(ObjectsContainerBase&&)	  = delete;
+			ObjectsContainerBase(ObjectsContainerBase const&) = delete;
+
+			ObjectsContainerBase& operator=(ObjectsContainerBase&&)	     = delete;
+			ObjectsContainerBase& operator=(ObjectsContainerBase const&) = delete;
+
+			template <GameObject _Ty, class ... _ArgTys>
+				requires (std::constructible_from<_Ty, _ArgTys...>)
+			_NODISCARD std::weak_ptr <_Ty> make_object(_ArgTys&&... args)
 			{
-				auto  ptr = std::make_shared<_Ty>(std::forward<_ArgTys>(args)...);
-				auto& obj = *ptr;
+				auto ptr = std::make_shared<_Ty>(std::forward<_ArgTys>(args)...);
+				auto me  = std::static_pointer_cast <Game::Scene>(this->shared_from_this());
 
-				if constexpr (std::derived_from<_Ty, Detail::CameraBase>)
-					if (myCamera.expired())
-						myCamera = ptr;
-				
-				myObjects.emplace(std::move(ptr));
-				return obj;
+				ptr -> set_scene(me);
+				myObjects.emplace(ptr);
+
+				return ptr;
 			}
 
-			void bind_camera(std::shared_ptr<Detail::CameraBase> camera) noexcept {
-				myCamera = camera;
-			}
-
-			_NODISCARD std::weak_ptr<Detail::CameraBase> get_active_camera() const noexcept {
-				return myCamera;
-			}
-
-			void start_all() {
-				for (auto& object : myObjects)
-					object->correct_on_start();
-			}
-
-			void update_all(float time)
-			{
-				sort_by_layers();
-
-				for (auto& object : myObjects)
-					object->correct_on_update(time);
-
-				for (auto& object : myObjects)
-					object->correct_on_late_update(time);
-
-				for (auto& object : myObjects)
-					object->correct_on_render_update();
-
-				find_collisions();
-			}
-
-			_NODISCARD nlohmann::json serialize() const 
-			{
-				auto obj = nlohmann::json::array();
-
-				for (auto const& object : myObjects)
-					obj.push_back(object->serialize());
-
-				return obj;
-			}
-
-			void deserialize(nlohmann::json const obj) const
-			{
-				if (obj.is_array())
-				{
-					std::set<Object*, decltype([](auto const& l, auto const& r) {
-												   return l->get_id() < r->get_id();
-											   })> 
-					idSortedObjects;
-					
-					std::transform(myObjects.begin (), 
-								   myObjects.end   (),
-								   std::inserter   (idSortedObjects, idSortedObjects.begin()),
-								   [] (auto const& unique) {
-								       return unique.get();
-								   });
-
-					for (auto const& objectData : obj)
-					{
-						size_t ID;
-						Detail::Json::try_fill(objectData, ID, key_id);
-
-						auto iter = std::lower_bound(idSortedObjects.begin(),
-													 idSortedObjects.end(),
-													 ID,
-													 [] (auto const& ptr, auto const& id) {
-													     return ptr->get_id() < id;
-													 });
-
-						if (iter != idSortedObjects.end() && (*iter)->get_id() == ID) _LIKELY
-						{
-							(*iter)->deserialize(objectData);
-							idSortedObjects.erase(iter);
-						}						
-					}
-				}
-				else
-					throw std::invalid_argument("invalid json object: it's not an array");
+			template <GameObject _Ty>
+			void remove_object(std::shared_ptr<_Ty> const& ptr) noexcept {
+				myObjects.erase(ptr);
 			}
 
 		private:
-			static constexpr std::string_view key_id = "id";
+			void for_each(auto&& fn)
+			{
+				for (auto iter = myObjects.begin(); 
+					 iter != myObjects.end();
+				) {
+					auto const& object = *iter;
+					
+					if (!object) throw 2;
 
-			std::weak_ptr<Detail::CameraBase> myCamera;
+					fn (*object);
 
-			std::multiset<std::shared_ptr<Object>, 
-						  decltype([](auto const& l, auto const& r) {
-					          return l->get_layer() < r->get_layer();
-						  })>
-			myObjects;
+					if (object->has_changed())
+					{
+						auto  node = myObjects.extract(iter++);
+						auto& ptr  = node.value();
+
+						myChangedObjects.emplace_back(std::move(ptr));
+					}
+					else
+						++iter;
+				}
+
+				for (auto& changed : myChangedObjects)
+					myObjects.emplace(std::move(changed));
+
+				myChangedObjects.clear();
+			}
+
+		protected:
+			void start_all() {
+				for_each([] (Game::Object& obj) {
+					obj.start();
+				});
+			}
+
+			void update_all(float time) {
+				for_each([=] (Game::Object& obj) {
+					obj.update(time);
+				});
+			}
+
+			void late_update_all(float time) {
+				for_each([=] (Game::Object& obj) {
+					obj.late_update(time);
+				});
+			}
+
+			void render_all() {
+				for_each([] (Game::Object& obj) {
+					obj.render();
+				});
+			}
+
+		private:
+			using comparator_type = decltype([] (auto const& l, auto const& r) {
+									    return l->get_layer() < r->get_layer();
+									});
+
+			using hasher_type = decltype([] (auto const& ptr) {
+									return std::hash<size_t>{}(ptr->get_layer());
+								});
+
+			std::multiset <std::shared_ptr <Game::Object>, comparator_type> myObjects;
+			std::vector   <std::shared_ptr <Game::Object>> myChangedObjects;
+		};
+	}
+
+	namespace Game
+	{
+		class Scene final :
+			public Detail::EntityBase,
+			public Detail::ObjectsContainerBase
+		{
+		public:
+			Scene (Generic::Engine& engine) noexcept :
+				myEngine (engine)
+			{}
+
+			Scene(Scene&&)      = delete;
+			Scene(Scene const&) = delete;
+
+			Scene& operator=(Scene&&)	   = delete;
+			Scene& operator=(Scene const&) = delete;
+
+			void on_start() final {
+				this->start_all();
+			}
+
+			void on_update(float time) final {
+				this->update_all(time);
+			}
+
+			void on_late_update(float time) final {
+				this->late_update_all(time);
+			}
+
+			void on_render() final {
+				this->render_all();
+			}
+
+		private:
+			Generic::Engine& myEngine;
 		};
 	}
 }

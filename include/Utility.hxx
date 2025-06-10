@@ -7,115 +7,104 @@ namespace Coli
 	namespace Detail
 	{
 		template <class _Ty>
+		concept Hashable = requires (_Ty _val) {
+			{ std::hash<_Ty>{}(_val) } -> std::convertible_to<size_t>;
+		};
+
+		template <class _Ty>
 		concept LinearContainer = requires (_Ty _val)
 		{
-			{ _val.size() } -> std::convertible_to <size_t>;
-			{ _val.data() } -> std::convertible_to <void const*>;
-
 			typename _Ty::value_type;
+
+			{ _val.size() } -> std::convertible_to <size_t>;
+			{ _val.data() } -> std::convertible_to <typename _Ty::value_type const*>;
 		};
 
 		template <class _Ty, class _ValueTy>
 		concept LinearContainerOf =
 			LinearContainer <_Ty> &&
-			std::same_as<std::remove_cv_t <typename _Ty::value_type>, 
-						 std::remove_cv_t <_ValueTy>>;
+			std::same_as <std::remove_cv_t <typename _Ty::value_type>, 
+						  std::remove_cv_t <_ValueTy>>;
+
+		template <class _Ty>
+		concept IterableContainer = requires (_Ty _val)
+		{
+			typename _Ty::value_type;
+
+			{ _val.size() }  -> std::convertible_to <size_t>;
+			{ _val.begin() } -> std::input_or_output_iterator;
+			{ _val.end() }   -> std::input_or_output_iterator;
+		};
+
+		template <class _Ty, class _ValueTy>
+		concept IterableContainerOf =
+			IterableContainer <_Ty> &&
+			std::same_as <std::remove_cv_t <typename _Ty::value_type>,
+						  std::remove_cv_t <_ValueTy>>;
 
 		class TransparentHash final
 		{
 		public:
 			using is_transparent = std::true_type;
 
-			template <class _Ty> requires (requires{ std::hash<_Ty>{}(_STD declval<const _Ty&>()); })
+			template <Hashable _Ty>
 			_NODISCARD size_t operator()(_Ty const& val) const noexcept {
 				return std::hash<_Ty>{}(val);
 			}
 		};
 
-		class IdentifiableBase
+		class HashMixer final
 		{
-			_NODISCARD static size_t take_id() noexcept {
-				return previous_id = std::hash<size_t>{}(previous_id);
-			}
-
-		protected:
-			IdentifiableBase() noexcept :
-				myID (take_id())
-			{}
+			static constexpr size_t prime_value = 0x01000193;
 
 		public:
-			_NODISCARD size_t get_id() const noexcept {
-				return myID;
+			static constexpr size_t start_value = 0x811c9dc5;
+
+			_NODISCARD size_t operator()(size_t next, size_t current = start_value) const noexcept {
+				return (current * prime_value) ^ next;
 			}
-
-		private:
-			static inline size_t previous_id = 0;
-
-			size_t const myID;
 		};
 
-		class TypeIdentifiableBase
-		{
-		public:
-			_NODISCARD virtual size_t get_type_id() const noexcept = 0;
+		struct DataProxy {
+			void const* const data;
+			size_t const	  size;
 		};
 
 		template <class> 
 		struct IsOptional : public std::false_type {};
 
 		template <class _Ty>
-		struct IsOptional<std::optional<_Ty>> : public std::true_type {};
-
-		namespace FNV 
-		{
-			constexpr size_t prime_value = 0x01000193;
-			constexpr size_t start_value = 0x811c9dc5;
-
-			_NODISCARD constexpr size_t mix_hash(size_t next, size_t current = start_value) noexcept {
-				return (current * prime_value) ^ next;
-			}
-		}
+		struct IsOptional <std::optional <_Ty>> : public std::true_type {};
 
 		namespace Json
 		{
-			void try_fill(nlohmann::json const& obj, auto& storage, auto const& key)
+			template <class _ValTy> requires (
+				std::is_object_v <_ValTy> &&
+				!std::is_const_v <_ValTy>
+			)
+			void try_fill (nlohmann::json const& obj, _ValTy& storage, auto const& key)
 			{
-				using storage_type = std::remove_reference_t<decltype(storage)>;
-
-				static_assert(std::is_lvalue_reference_v<decltype(storage)>,
-							  "'storage' must be a lvalue reference");
-
-				static_assert(!std::is_const_v<storage_type>, 
-							  "'storage' must be of a non-const type");
 				try {
-					if constexpr (IsOptional<storage_type>::value)
+					if constexpr (IsOptional<_ValTy>::value)
 					{
 						auto& atKey = obj.at(key);
 
 						if (atKey.is_null())
 							storage.reset();
 						else
-							storage.emplace(atKey.get<typename storage_type::value_type>());
+							storage.emplace(atKey.get<typename _ValTy::value_type>());
 					}
-					else if constexpr (std::same_as<storage_type, nlohmann::json>)
+					else if constexpr (std::same_as<_ValTy, nlohmann::json>)
 						storage = obj.at(key);
 					else
-						storage = obj.at(key).get<std::remove_reference_t<decltype(storage)>>();
+						storage = obj.at(key).get<_ValTy>();
 				}
-				catch (nlohmann::json::exception const& exc) {
+				catch (nlohmann::json::exception const& exc) 
+				{
 					using namespace std::string_literals;
-					throw std::invalid_argument("invalid json object: "s + exc.what());
+					throw std::invalid_argument("Invalid json object: "s + exc.what());
 				}
 			}
-		}
-
-		template <std::floating_point _FloatTy>
-		_NODISCARD constexpr _FloatTy clamp_0_1(_FloatTy val) noexcept 
-		{
-			constexpr auto min = std::numeric_limits<_FloatTy>::epsilon();
-			constexpr auto max = 1 - std::numeric_limits<_FloatTy>::epsilon();
-
-			return glm::clamp<_FloatTy>(val, min, max);
 		}
 	}
 }
@@ -123,16 +112,16 @@ namespace Coli
 namespace nlohmann
 {
 	template <class _Ty>
-	struct adl_serializer <std::optional<_Ty>>
+	struct adl_serializer <std::optional <_Ty>>
 	{
-		static void to_json(json& j, std::optional<_Ty> const& val) {
-			if (val)
+		static void to_json (json& j, std::optional<_Ty> const& val) {
+			if (val.has_value())
 				j = *val;
 			else
 				j = nullptr;
 		}
 
-		static void from_json(json const& j, std::optional<_Ty>& val) {
+		static void from_json (json const& j, std::optional<_Ty>& val) {
 			if (j.is_null())
 				val.reset();
 			else
